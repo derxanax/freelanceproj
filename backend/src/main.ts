@@ -304,7 +304,7 @@ async function startFilterWizard(ctx: MyContext) {
   
   // Категория теперь не выбирается
   ctx.session.filters.category = 'Все товары';
-  ctx.session.filters.isCar = false;
+  // ctx.session.filters.isCar = false; // Больше не используется
   
   await ctx.reply('Введи ключевые слова для поиска:');
 }
@@ -408,36 +408,10 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
     const max = Number(ctx.message.text)
     if (isNaN(max)) return ctx.reply('Пожалуйста, введи число!')
     ctx.session.filters.maxPrice = max
-    if (ctx.session.filters.isCar) {
-      ctx.session.filters.step = 'minYear'
-      await ctx.reply('Введи минимальный год выпуска автомобиля (или 0 если нет ограничений):')
-      return
-    }
-    ctx.session.filters.step = null
-    try {
-      await axios.post(`${API_URL}/set-location`, { city: ctx.session.filters.city, radius: ctx.session.filters.radius })
-      await axios.post(`${API_URL}/set-price-filter`, { minPrice: ctx.session.filters.minPrice, maxPrice: ctx.session.filters.maxPrice })
-      
-      if ((ctx.session.filters.minYear !== undefined && ctx.session.filters.minYear > 0) || 
-          (ctx.session.filters.maxYear !== undefined && ctx.session.filters.maxYear > 0)) {
-        try {
-          await axios.post(`${API_URL}/set-year-filter`, { 
-            minYear: (ctx.session.filters.minYear !== undefined && ctx.session.filters.minYear > 0) ? ctx.session.filters.minYear : null, 
-            maxYear: (ctx.session.filters.maxYear !== undefined && ctx.session.filters.maxYear > 0) ? ctx.session.filters.maxYear : null 
-          });
-        } catch (yearError: any) {
-          if (yearError.response && yearError.response.status === 404) {
-            console.log('Фильтр года не найден, будет применена сортировка по году из заголовка')
-          } else {
-            console.error('Ошибка при установке фильтра года:', yearError.message || yearError);
-          }
-        }
-      }
-      await ctx.reply('✅ Фильтры сохранены! Теперь можешь запустить мониторинг.', { reply_markup: mainMenu })
-    } catch (error) {
-      console.error('Ошибка при применении фильтров:', error)
-      await ctx.reply('❌ ФАТАЛЬНАЯ ОШИБКА: Не удалось применить фильтры. Система недоступна.', { reply_markup: mainMenu })
-    }
+    
+    // Для всех категорий спрашиваем про год (не только для машин)
+    ctx.session.filters.step = 'minYear'
+    await ctx.reply('Введи минимальный год выпуска (или 0 если нет ограничений):')
     return
   }
   if (step === 'minYear') {
@@ -445,7 +419,7 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
     if (isNaN(minYear)) return ctx.reply('Пожалуйста, введи год в числовом формате!')
     ctx.session.filters.minYear = minYear === 0 ? undefined : minYear
     ctx.session.filters.step = 'maxYear'
-    await ctx.reply('Введи максимальный год выпуска автомобиля (или 0 если нет ограничений):')
+    await ctx.reply('Введи максимальный год выпуска (или 0 если нет ограничений):')
     return
   }
   if (step === 'maxYear') {
@@ -523,7 +497,7 @@ bot.hears('🔎 Запустить мониторинг', async (ctx: MyContext)
     await axios.post(`${API_URL}/set-location`, { city: f.city, radius: f.radius });
     await axios.post(`${API_URL}/set-price-filter`, { minPrice: f.minPrice, maxPrice: f.maxPrice });
     
-    if (f.isCar && ((f.minYear !== undefined && f.minYear > 0) || (f.maxYear !== undefined && f.maxYear > 0))) {
+    if ((f.minYear !== undefined && f.minYear > 0) || (f.maxYear !== undefined && f.maxYear > 0)) {
       try {
         await axios.post(`${API_URL}/set-year-filter`, { 
           minYear: (f.minYear !== undefined && f.minYear > 0) ? f.minYear : null,
@@ -907,7 +881,7 @@ bot.hears('📋 Мои фильтры', async (ctx: MyContext) => {
   
   let filterText = `Ключевые слова: ${f.query}\nГород: ${f.city}\nРадиус: ${f.radius} миль\nЦена: ${f.minPrice}–${f.maxPrice}`;
   
-  if (f.isCar && (f.minYear !== undefined || f.maxYear !== undefined)) {
+  if ((f.minYear !== undefined && f.minYear > 0) || (f.maxYear !== undefined && f.maxYear > 0)) {
     const minYearStr = f.minYear !== undefined && f.minYear > 0 ? f.minYear.toString() : '-';
     const maxYearStr = f.maxYear !== undefined && f.maxYear > 0 ? f.maxYear.toString() : '-';
     filterText += `\nГод выпуска: ${minYearStr}–${maxYearStr}`;
