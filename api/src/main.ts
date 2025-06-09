@@ -99,6 +99,8 @@ async function waitForElement(page: Page, selectors: string[], timeout: number =
 }
 
 async function safeClick(page: Page, element: ElementHandle): Promise<boolean> {
+  const errors: string[] = [];
+  
   try {
     // Скроллим к элементу
     await element.scrollIntoViewIfNeeded();
@@ -113,18 +115,27 @@ async function safeClick(page: Page, element: ElementHandle): Promise<boolean> {
     console.log('Успешный клик методом 1 (обычный клик)');
     return true;
   } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    errors.push(`Метод 1 (обычный клик): ${error}`);
+    
     try {
       // Метод 2: Клик с force
       await element.click({ timeout: 3000, force: true });
       console.log('Успешный клик методом 2 (force клик)');
       return true;
     } catch (e2) {
+      const error2 = e2 instanceof Error ? e2.message : String(e2);
+      errors.push(`Метод 2 (force клик): ${error2}`);
+      
       try {
         // Метод 3: JS клик
         await element.evaluate((el: HTMLElement) => el.click());
         console.log('Успешный клик методом 3 (JS клик)');
         return true;
       } catch (e3) {
+        const error3 = e3 instanceof Error ? e3.message : String(e3);
+        errors.push(`Метод 3 (JS клик): ${error3}`);
+        
         try {
           // Метод 4: Клик по координатам
           const box = await element.boundingBox();
@@ -134,29 +145,44 @@ async function safeClick(page: Page, element: ElementHandle): Promise<boolean> {
             await page.mouse.click(x, y);
             console.log('Успешный клик методом 4 (координаты)');
             return true;
+          } else {
+            errors.push(`Метод 4 (координаты): Не удалось получить boundingBox`);
           }
-                 } catch (e4) {
-           try {
-             // Метод 5: Dispatch событий
-             await element.evaluate((el: HTMLElement) => {
-               el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-               el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-               el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-             });
-             console.log('Успешный клик методом 5 (dispatch событий)');
-             return true;
-           } catch (e5) {
-             console.log('Не удалось кликнуть по элементу всеми методами');
-             return false;
-           }
-         }
-       }
+        } catch (e4) {
+          const error4 = e4 instanceof Error ? e4.message : String(e4);
+          errors.push(`Метод 4 (координаты): ${error4}`);
+          
+          try {
+            // Метод 5: Dispatch событий
+            await element.evaluate((el: HTMLElement) => {
+              el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+              el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+              el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            });
+            console.log('Успешный клик методом 5 (dispatch событий)');
+            return true;
+          } catch (e5) {
+            const error5 = e5 instanceof Error ? e5.message : String(e5);
+            errors.push(`Метод 5 (dispatch событий): ${error5}`);
+            
+            console.log('Не удалось кликнуть по элементу всеми методами');
+            const errorMessage = `ОШИБКА КЛИКА: Не удалось выполнить клик всеми доступными методами:\n${errors.join('\n')}`;
+            console.error(errorMessage);
+            throw new Error(errorMessage);
+          }
+        }
       }
     }
-    return false;
   }
+  
+  const errorMessage = `ОШИБКА КЛИКА: Не удалось выполнить клик всеми доступными методами:\n${errors.join('\n')}`;
+  console.error(errorMessage);
+  throw new Error(errorMessage);
+}
 
 async function safeType(page: Page, element: ElementHandle, text: string): Promise<boolean> {
+  const errors: string[] = [];
+  
   try {
     // Скроллим к элементу и фокусируемся
     await element.scrollIntoViewIfNeeded();
@@ -175,8 +201,12 @@ async function safeType(page: Page, element: ElementHandle, text: string): Promi
     if (currentValue === text) {
       console.log('Успешный ввод методом 1 (element.fill)');
       return true;
+    } else {
+      errors.push(`Метод 1: Текст не совпадает: '${currentValue}' !== '${text}'`);
     }
   } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    errors.push(`Метод 1 (element.fill): ${error}`);
     console.log('Метод 1 не сработал, пробуем метод 2');
   }
   
@@ -194,8 +224,12 @@ async function safeType(page: Page, element: ElementHandle, text: string): Promi
     if (currentValue === text) {
       console.log('Успешный ввод методом 2 (Ctrl+A + type)');
       return true;
+    } else {
+      errors.push(`Метод 2: Текст не совпадает: '${currentValue}' !== '${text}'`);
     }
   } catch (e2) {
+    const error2 = e2 instanceof Error ? e2.message : String(e2);
+    errors.push(`Метод 2 (Ctrl+A + type): ${error2}`);
     console.log('Метод 2 не сработал, пробуем метод 3');
   }
   
@@ -215,8 +249,12 @@ async function safeType(page: Page, element: ElementHandle, text: string): Promi
     if (currentValue === text) {
       console.log('Успешный ввод методом 3 (JS с событиями)');
       return true;
+    } else {
+      errors.push(`Метод 3: Текст не совпадает: '${currentValue}' !== '${text}'`);
     }
   } catch (e3) {
+    const error3 = e3 instanceof Error ? e3.message : String(e3);
+    errors.push(`Метод 3 (JS с событиями): ${error3}`);
     console.log('Метод 3 не сработал, пробуем метод 4');
   }
   
@@ -237,13 +275,18 @@ async function safeType(page: Page, element: ElementHandle, text: string): Promi
     if (currentValue === text) {
       console.log('Успешный ввод методом 4 (посимвольный ввод)');
       return true;
+    } else {
+      errors.push(`Метод 4: Текст не совпадает: '${currentValue}' !== '${text}'`);
     }
   } catch (e4) {
+    const error4 = e4 instanceof Error ? e4.message : String(e4);
+    errors.push(`Метод 4 (посимвольный ввод): ${error4}`);
     console.log('Метод 4 не сработал');
   }
   
-  console.log('Не удалось ввести текст в элемент всеми способами');
-  return false;
+  const errorMessage = `ОШИБКА ВВОДА: Не удалось ввести текст '${text}' всеми доступными методами:\n${errors.join('\n')}`;
+  console.error(errorMessage);
+  throw new Error(errorMessage);
 }
 
 interface AppStatus {
@@ -366,7 +409,13 @@ async function humanClick(page: Page, element: any, options: any = {}) {
     await page.waitForTimeout(getRandomDelay(100, 300));
   } catch (error) {
     console.log('Ошибка человеческого клика, использую обычный:', error);
-    await element.click(options);
+    try {
+      await element.click(options);
+    } catch (fallbackError) {
+      const errorMsg = `ОШИБКА КЛИКА: Не удалось выполнить клик ни человеческим методом, ни обычным. Оригинальная ошибка: ${error}. Ошибка запасного метода: ${fallbackError}`;
+      console.error(errorMsg);
+      throw new Error(errorMsg);
+    }
   }
 }
 
@@ -380,10 +429,37 @@ async function humanType(page: Page, element: any, text: string) {
       await page.waitForTimeout(getHumanTypingDelay());
     }
     
+    // Проверяем, что текст действительно был введен
+    try {
+      const currentValue = await element.evaluate((el: HTMLInputElement) => el.value || el.textContent);
+      if (currentValue && !currentValue.includes(text)) {
+        throw new Error(`Текст не был введен корректно. Ожидался '${text}', получено '${currentValue}'`);
+      }
+    } catch (checkError) {
+      console.log('Невозможно проверить введенный текст:', checkError);
+      // Продолжаем выполнение, так как не все элементы имеют свойство value
+    }
+    
     await page.waitForTimeout(getRandomDelay(200, 500));
   } catch (error) {
     console.log('Ошибка человеческого ввода, использую обычный:', error);
-    await element.type(text);
+    try {
+      await element.type(text);
+      
+      // Дополнительная проверка после обычного ввода
+      try {
+        const currentValue = await element.evaluate((el: HTMLInputElement) => el.value || el.textContent);
+        if (currentValue && !currentValue.includes(text)) {
+          throw new Error(`Текст не был введен корректно. Ожидался '${text}', получено '${currentValue}'`);
+        }
+      } catch (checkError) {
+        // Проигнорируем ошибку проверки
+      }
+    } catch (fallbackError) {
+      const errorMsg = `ОШИБКА ВВОДА: Не удалось ввести текст '${text}' ни человеческим методом, ни обычным. Оригинальная ошибка: ${error}. Ошибка запасного метода: ${fallbackError}`;
+      console.error(errorMsg);
+      throw new Error(errorMsg);
+    }
   }
 }
 
