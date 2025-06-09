@@ -456,7 +456,8 @@ async function restartBrowser(): Promise<boolean> {
     await cleanupSingletonLock();
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    const userDataDir = path.join(process.cwd(), 'backend', 'sessions', 'fb-browser-session');
+    // Используем абсолютный путь для директории сессии
+    const userDataDir = path.resolve(__dirname, '../../backend/sessions/fb-browser-session');
     
     try {
       globalBrowser = await firefox.launchPersistentContext(userDataDir, {
@@ -1616,7 +1617,8 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
   });
 }
 async function cleanupSingletonLock() {
-  const userDataDir = path.join(process.cwd(), 'backend', 'sessions', 'fb-browser-session');
+  // Используем абсолютный путь для директории сессии
+  const userDataDir = path.resolve(__dirname, '../../backend/sessions/fb-browser-session');
   const lockFiles = [
     path.join(userDataDir, 'SingletonLock'),
     path.join(userDataDir, 'SingletonCookie'),
@@ -1652,7 +1654,8 @@ async function openFacebookMarketplace() {
   updateStatus({ stage: 'browser_starting' });
   try {
     await setupApiServer();
-    const userDataDir = path.join(process.cwd(), 'backend', 'sessions', 'fb-browser-session');
+    // Используем абсолютный путь для директории сессии
+    const userDataDir = path.resolve(__dirname, '../../backend/sessions/fb-browser-session');
     if (!fs.existsSync(userDataDir)) {
       fs.mkdirSync(userDataDir, { recursive: true });
       console.log(`Создана директория для профиля Firefox: ${userDataDir}`);
