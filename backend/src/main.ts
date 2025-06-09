@@ -598,37 +598,15 @@ async function sendListings(ctx: MyContext) {
       const url = item.itemUrl;
       if (!url) continue;
 
-      // Создаем уникальный ключ по содержимому (title + price + location)
-      const contentKey = `${item.title}_${item.price}_${item.location}`;
-      
       // Проверяем дубликаты по URL (быстрая проверка)
       if (ctx.session.sent.has(url) || ALL_KNOWN_URLS.has(url)) {
         duplicatesRemoved++;
         continue;
       }
       
-      // Проверяем дубликаты по содержимому (защита от разных URL одного товара)
-      if (ctx.session.sent.has(contentKey) || ALL_KNOWN_URLS.has(contentKey)) {
-        duplicatesRemoved++;
-        continue;
-      }
-      
-      // Проверка в БД по URL
-      try {
-        const exists = db.prepare('SELECT 1 FROM sent_items WHERE itemUrl = ?').get(url);
-        if (exists) {
-          duplicatesRemoved++;
-          continue;
-        }
-      } catch (dbError) {
-        console.error('[sendListings] Ошибка БД:', dbError);
-      }
-      
-      // Добавляем новое объявление (и URL и содержимое)
+      // Добавляем новое объявление (только URL)
       ALL_KNOWN_URLS.add(url); 
-      ALL_KNOWN_URLS.add(contentKey);
       ctx.session.sent.add(url); 
-      ctx.session.sent.add(contentKey);
       uniqueItems.push(item);
       
       try {
@@ -815,7 +793,8 @@ async function clearImages() {
                 try {
                   fs.unlinkSync(group[i].path)
                   duplicatesRemoved++
-                  console.log(`Удален дубликат: ${group[i].name}`)
+                  // Скрываем эти сообщения
+                  // console.log(`Удален дубликат: ${group[i].name}`)
                 } catch (e) {
                   console.error(`Ошибка при удалении дубликата ${group[i].path}: ${e}`)
                 }
@@ -910,8 +889,11 @@ function saveAllCacheToDB() {
     
     const transaction = db.transaction(() => {
       ALL_KNOWN_URLS.forEach(url => {
-        const result = insertStmt.run(url, timestamp);
-        if (result.changes > 0) savedCount++;
+        // Проверяем, что это URL, а не contentKey (contentKey обычно не содержит http)
+        if (url.startsWith('http')) {
+          const result = insertStmt.run(url, timestamp);
+          if (result.changes > 0) savedCount++;
+        }
       });
     });
     
