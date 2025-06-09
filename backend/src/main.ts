@@ -137,8 +137,7 @@ const API_URL = `http://localhost:${API_PORT}`;
 console.log(`Используем API URL: ${API_URL}`);
 
 interface FilterState {
-  step: null | 'category' | 'query' | 'city' | 'radius' | 'minPrice' | 'maxPrice' | 'minYear' | 'maxYear'
-  category?: string
+  step: null | 'query' | 'city' | 'radius' | 'minPrice' | 'maxPrice' | 'minYear' | 'maxYear'
   query?: string
   city?: string
   radius?: number
@@ -146,7 +145,6 @@ interface FilterState {
   maxPrice?: number
   minYear?: number
   maxYear?: number
-  isCar?: boolean
 }
 
 interface SessionData {
@@ -301,10 +299,6 @@ async function startFilterWizard(ctx: MyContext) {
   } catch (navError) {
     console.error('[startFilterWizard] Ошибка при навигации на базовую страницу:', navError);
   }
-  
-  // Категория теперь не выбирается
-  ctx.session.filters.category = 'Все товары';
-  // ctx.session.filters.isCar = false; // Больше не используется
   
   await ctx.reply('Введи ключевые слова для поиска:');
 }
@@ -492,7 +486,6 @@ bot.hears('🔎 Запустить мониторинг', async (ctx: MyContext)
   
   try {
     await axios.post(`${API_URL}/navigate-to-marketplace`, {});
-    // Категория больше не выбирается
     await axios.post(`${API_URL}/search`, { query: f.query });
     await axios.post(`${API_URL}/set-location`, { city: f.city, radius: f.radius });
     await axios.post(`${API_URL}/set-price-filter`, { minPrice: f.minPrice, maxPrice: f.maxPrice });

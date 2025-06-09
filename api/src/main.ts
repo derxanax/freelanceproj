@@ -817,14 +817,6 @@ function setupApiServer() {
       port: API_PORT
     });
   });
-  app.post('/select-category', (req, res) => {
-    handleCategorySelection(req, res).catch(error => {
-      res.status(500).json({
-        success: false,
-        error: String(error)
-      });
-    });
-  });
   app.post('/search', (req, res) => {
     handleSearch(req, res).catch(error => {
       res.status(500).json({
@@ -1011,16 +1003,29 @@ async function handleSearch(req: Request, res: Response): Promise<Response> {
   try {
     console.log(`Выполняю поиск по запросу: "${query}"`);
     
-    // Новые улучшенные селекторы из примера Playwright
+    // Селекторы, проверенные на работоспособность в последних версиях Facebook Marketplace
     const searchSelectors = [
       '.x9f619:nth-child(2) > div:nth-child(1) > .xjp7ctv:nth-child(1) [placeholder="Поиск в Marketplace"]',
       'input[type="search"][placeholder="Поиск в Marketplace"]', 
       'input[aria-label="Поиск в Marketplace"]',
-      'input[type="search"]'
+      'input[type="search"]',
+      '.x18bame2 > [placeholder="Поиск в Marketplace"]'
     ];
     
-    // Попытка найти элемент поиска
-    const searchInput = await findElement(globalPage, searchSelectors, 'поле поиска');
+    // Ищем поле поиска
+    let searchInput = null;
+    
+    for (const selector of searchSelectors) {
+      try {
+        searchInput = await globalPage.$(selector);
+        if (searchInput) {
+          console.log(`Найдено поле поиска по селектору: ${selector}`);
+          break;
+        }
+      } catch (e) {
+        console.log(`Селектор не работает: ${selector}`);
+      }
+    }
     
     if (!searchInput) {
       return res.status(404).json({
@@ -1029,39 +1034,60 @@ async function handleSearch(req: Request, res: Response): Promise<Response> {
       });
     }
     
-    // Очистка поля перед вводом
-    await searchInput.click({ clickCount: 3 });
-    await globalPage.keyboard.press('Backspace');
+    // Очистка поля поиска
+    try {
+      await globalPage.fill(searchSelectors[0], '');
+      console.log('Поле поиска очищено');
+    } catch (clearError) {
+      try {
+        await searchInput.click({ clickCount: 3 });
+        await globalPage.keyboard.press('Backspace');
+        console.log('Поле поиска очищено через clickCount и Backspace');
+      } catch (e) {
+        console.log('Ошибка при очистке поля поиска:', e);
+      }
+    }
+    
     await globalPage.waitForTimeout(300);
     
-    // Попытка ввода с использованием safeType
-    const success = await safeType(globalPage, searchInput, query);
-    if (!success) {
-      // Альтернативный метод через прямой клик и ввод
+    // Ввод текста в поле поиска
+    try {
+      await globalPage.fill(searchSelectors[0], query);
+      console.log('Текст введен через fill');
+    } catch (fillError) {
       try {
-        await globalPage.click(searchSelectors[0]);
-        await globalPage.keyboard.press('Control+a');
-        await globalPage.keyboard.press('Backspace');
-        await globalPage.keyboard.type(query);
-        console.log('Текст введен через альтернативный метод клика и ввода');
-      } catch (altError) {
-        // Последняя попытка через JavaScript
+        await searchInput.type(query);
+        console.log('Текст введен через type');
+      } catch (typeError) {
         try {
-          await globalPage.evaluate((input: { q: string, selectors: string[] }) => {
-            for (const selector of input.selectors) {
-              const searchInput = document.querySelector(selector) as HTMLInputElement;
-              if (searchInput) {
-                searchInput.focus();
-                searchInput.value = '';
-                searchInput.value = input.q;
-                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-                searchInput.dispatchEvent(new Event('change', { bubbles: true }));
-                return true;
+          // Используем функцию для вставки текста через JavaScript
+          const fillByJs = async (text: string): Promise<boolean> => {
+            if (!globalPage) return false;
+            return await globalPage.evaluate(text => {
+              const selectors = [
+                '.x9f619:nth-child(2) > div:nth-child(1) > .xjp7ctv:nth-child(1) [placeholder="Поиск в Marketplace"]',
+                'input[type="search"][placeholder="Поиск в Marketplace"]', 
+                'input[aria-label="Поиск в Marketplace"]',
+                'input[type="search"]',
+                '.x18bame2 > [placeholder="Поиск в Marketplace"]'
+              ];
+              
+              for (const selector of selectors) {
+                try {
+                  const input = document.querySelector(selector) as HTMLInputElement;
+                  if (input) {
+                    input.value = text;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    return true;
+                  }
+                } catch (e) {}
               }
-            }
-            return false;
-          }, { q: query, selectors: searchSelectors });
-          console.log('Текст введен через JavaScript метод');
+              return false;
+            }, query);
+          };
+          
+          await fillByJs(query);
+          console.log('Текст введен через JavaScript');
         } catch (jsError) {
           return res.status(500).json({
             success: false, 
@@ -1072,8 +1098,25 @@ async function handleSearch(req: Request, res: Response): Promise<Response> {
     }
     
     // Нажатие Enter для выполнения поиска
-    await globalPage.keyboard.press('Enter');
-    await globalPage.waitForTimeout(3000);
+    try {
+      await globalPage.keyboard.press('Enter');
+      await globalPage.waitForTimeout(3000);
+      console.log('Выполнен поиск нажатием Enter');
+    } catch (enterError) {
+      try {
+        await globalPage.evaluate(() => {
+          const form = document.querySelector('form');
+          if (form) form.submit();
+        });
+        await globalPage.waitForTimeout(3000);
+        console.log('Выполнен поиск через submit формы');
+      } catch (submitError) {
+        return res.status(500).json({
+          success: false, 
+          error: "Не удалось выполнить поиск"
+        });
+      }
+    }
     
     // Проверка успешности поиска
     const currentUrl = globalPage.url();
@@ -1102,32 +1145,7 @@ async function handleSearch(req: Request, res: Response): Promise<Response> {
     });
   }
 }
-async function handleCategorySelection(req: Request, res: Response) {
-  if (!globalPage) {
-    return res.status(400).json({
-      success: false, 
-      error: "Браузер не инициализирован"
-    });
-  }
-  
-  const { category, categoryId } = req.body;
-  const categoryName = category || categoryId || "Все категории";
-  
-  console.log(`Категория "${categoryName}" установлена (функциональность отключена)`);
-  
-  // Категория больше не выбирается, просто сохраняем в состояние
-  currentAppState.selectedCategory = categoryName;
-  
-  return res.json({
-    success: true,
-    message: `Выбрана категория ${categoryName}`,
-    status: "completed",
-    selectedCategory: {
-      name: categoryName,
-      id: categoryName
-    }
-  });
-}
+
 
 function extractYearFromTitle(title: string): number | null {
   const yearMatch = title.match(/\b(19|20)\d{2}\b/);
