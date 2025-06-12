@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 backend/node_modules/.package-lock.json
 backend/node_modules/.bin/nodemon
 backend/node_modules/.bin/nodetouch
@@ -3033,6 +3034,12 @@ backend/node_modules/whatwg-url/lib/URL-impl.js
 backend/node_modules/whatwg-url/lib/url-state-machine.js
 backend/node_modules/whatwg-url/lib/URL.js
 backend/node_modules/whatwg-url/lib/utils.js
+=======
+*/package-lock.json
+*/dist
+*/node_modules 
+sent_items.db
+>>>>>>> fbca6f0 (вува)
 backend/sessions/fb-browser-session/.parentlock
 backend/sessions/fb-browser-session/activity-stream.weather_feed.json
 backend/sessions/fb-browser-session/addonStartup.json.lz4
