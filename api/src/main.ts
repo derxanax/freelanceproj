@@ -904,7 +904,6 @@ function setupApiServer() {
         console.log(`Поиск: POST http://localhost:${actualPort}/search с JSON {"query":"Ключевые слова для поиска"}`);
         console.log(`Получить товары: GET http://localhost:${actualPort}/listings?count=5`);
         console.log(`Навигация на базовую страницу: POST http://localhost:${actualPort}/navigate-to-marketplace`);
-        console.log(`Установка фильтра возраста объявления: POST http://localhost:${actualPort}/set-age-filter с JSON {"maxAgeMinutes":1440}`);
         API_PORT = actualPort;
         try {
           const portFilePath = path.join(process.cwd(), 'api_port.txt');
@@ -1164,6 +1163,48 @@ function extractYearFromTitle(title: string): number | null {
   }
   return null;
 }
+
+// Парсинг строки "17 ч. назад", "неделю назад" → минуты
+function parseAgeToMinutes(raw: string): number | null {
+  try {
+    raw = raw.toLowerCase().trim();
+    const numMatch = raw.match(/\d+/);
+    const num = numMatch ? parseInt(numMatch[0], 10) : 1; // если "неделю" без числа → 1
+    if (raw.includes('мин')) return num;
+    if (raw.includes('час')) return num * 60;
+    if (raw.includes('день')) return num * 60 * 24;
+    if (raw.includes('нед')) return num * 60 * 24 * 7;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Открываем карточку объявления и возвращаем возраст в минутах
+async function getListingAgeMinutes(url: string): Promise<number | null> {
+  if (!globalBrowser) return null;
+  let page: Page | null = null;
+  try {
+    page = await globalBrowser.newPage();
+    if (!page) return null;
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(getRandomDelay(500, 1000));
+    const abbr = await page.$('abbr[aria-label]');
+    if (!abbr) return null;
+    const label = await abbr.getAttribute('aria-label');
+    if (!label) return null;
+    const minutes = parseAgeToMinutes(label);
+    return minutes;
+  } catch (e) {
+    console.log('Ошибка getListingAgeMinutes:', e);
+    return null;
+  } finally {
+    if (page) {
+      try { await page.close(); } catch {}
+    }
+  }
+}
+
 async function handleNavigateToMarketplace(req: Request, res: Response): Promise<Response> {
   if (!globalPage) {
     return res.status(400).json({
@@ -1274,31 +1315,6 @@ async function handleRefreshPage(req: Request, res: Response): Promise<Response>
     });
   }
 }
-async function handleSetAgeFilter(req: Request, res: Response): Promise<Response> {
-  const { maxAgeMinutes } = req.body;
-  if (typeof maxAgeMinutes !== 'number' || maxAgeMinutes <= 0) {
-    return res.status(400).json({
-      success: false,
-      error: "Необходимо указать положительное число минут"
-    });
-  }
-  try {
-    console.log(`Устанавливаю фильтр возраста объявления: ${maxAgeMinutes} минут`);
-    currentAppState.maxAgeMinutes = maxAgeMinutes;
-    return res.json({
-      success: true,
-      message: `Фильтр возраста объявления установлен: ${maxAgeMinutes} минут`,
-      status: "completed"
-    });
-  } catch (error) {
-    console.error(`Ошибка при установке фильтра возраста объявления: ${error}`);
-    return res.status(500).json({
-      success: false,
-      error: `Не удалось установить фильтр возраста объявления: ${error}`,
-      status: "failed"
-    });
-  }
-}
 async function handleGetListings(req: Request, res: Response, count: number = 5): Promise<Response> {
   const maxRetries = 3;
   let retryCount = 0;
@@ -1397,7 +1413,7 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
             await optionById.click();
             await globalPage.waitForTimeout(1000);
           } else {
-            const sortMenuItem = await globalPage.waitForSelector('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x10flsy6.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.xudqn12.x3x7a5m.x6prxxf.xvq8zen.xk50ysn.xzsf02u.x1yc453h', { timeout: 3000 });
+            const sortMenuItem = await globalPage.waitForSelector('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x1xmvt09.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.xudqn12.x3x7a5m.x6prxxf.xvq8zen.xk50ysn.xzsf02u.x1yc453h', { timeout: 3000 });
             if (sortMenuItem) {
               const text = await sortMenuItem.textContent();
               if (text && text.includes('Дата публикации: сначала новые')) {
@@ -1430,7 +1446,7 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
                   if (inner) {
                     const textDiv = inner.querySelector('div.xod5an3.x16n37ib.x14vqqas.x1n2onr6.xqcrz7y');
                     if (textDiv) {
-                      const targetSpan = radio.querySelector('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x10flsy6.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.xudqn12.x3x7a5m.x6prxxf.xvq8zen.xk50ysn.xzsf02u.x1yc453h');
+                      const targetSpan = radio.querySelector('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x1xmvt09.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.xudqn12.x3x7a5m.x6prxxf.xvq8zen.xk50ysn.xzsf02u.x1yc453h');
                       if (targetSpan && targetSpan.textContent && targetSpan.textContent.includes('Дата публикации: сначала новые')) {
                         console.log('Найден точный элемент по HTML структуре');
                         (radio as HTMLElement).click();
@@ -1638,6 +1654,25 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
       uniqueTitles.add(itemSignature);
       return true;
     });
+    
+    // Фильтр по давности объявления
+    if (currentAppState.maxAgeMinutes && currentAppState.maxAgeMinutes > 0) {
+      console.log(`Применяем фильтр по возрасту: не старше ${currentAppState.maxAgeMinutes} минут`);
+      const ageFiltered: MarketplaceItem[] = [];
+      for (const itm of items) {
+        const age = await getListingAgeMinutes(itm.itemUrl);
+        if (age === null) {
+          console.log(`⚠️ Не удалось определить возраст: ${itm.itemUrl}`);
+          continue; // пропускаем при ошибке
+        }
+        if (age <= currentAppState.maxAgeMinutes) {
+          ageFiltered.push(itm);
+        } else {
+          console.log(`Отфильтровано по возрасту (${age} мин > ${currentAppState.maxAgeMinutes}): ${itm.title}`);
+        }
+      }
+      items = ageFiltered;
+    }
     
     const duplicatesRemoved = originalItemsCount - items.length;
     console.log(`Удалено дубликатов: ${duplicatesRemoved}`);
@@ -2347,6 +2382,14 @@ async function handleSetYearFilter(req: Request, res: Response): Promise<Respons
       maxYear: maxYear !== undefined && maxYear > 0 ? maxYear : null
     }
   });
+}
+async function handleSetAgeFilter(req: Request, res: Response): Promise<Response> {
+  const { maxAgeMinutes } = req.body;
+  if (maxAgeMinutes === undefined || maxAgeMinutes === null || isNaN(Number(maxAgeMinutes)) || Number(maxAgeMinutes) <= 0) {
+    return res.status(400).json({ success: false, error: 'Необходимо положительное число maxAgeMinutes' });
+  }
+  currentAppState.maxAgeMinutes = Number(maxAgeMinutes);
+  return res.json({ success: true, applied: { maxAgeMinutes: currentAppState.maxAgeMinutes } });
 }
 
 openFacebookMarketplace().catch(error => {

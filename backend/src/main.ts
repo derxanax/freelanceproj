@@ -137,11 +137,7 @@ const API_URL = `http://localhost:${API_PORT}`;
 console.log(`Используем API URL: ${API_URL}`);
 
 interface FilterState {
-<<<<<<< HEAD
-  step: null | 'query' | 'city' | 'radius' | 'minPrice' | 'maxPrice' | 'minYear' | 'maxYear' | 'timeFilter'
-=======
   step: null | 'query' | 'city' | 'radius' | 'minPrice' | 'maxPrice' | 'minYear' | 'maxYear' | 'ageLimit'
->>>>>>> fbca6f0 (вува)
   query?: string
   city?: string
   radius?: number
@@ -149,11 +145,7 @@ interface FilterState {
   maxPrice?: number
   minYear?: number
   maxYear?: number
-<<<<<<< HEAD
-  timeFilter?: string
-=======
   maxAgeMinutes?: number
->>>>>>> fbca6f0 (вува)
 }
 
 interface SessionData {
@@ -430,46 +422,6 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
     const maxYear = Number(ctx.message.text)
     if (isNaN(maxYear)) return ctx.reply('Пожалуйста, введи год в числовом формате!')
     ctx.session.filters.maxYear = maxYear === 0 ? undefined : maxYear
-<<<<<<< HEAD
-    ctx.session.filters.step = 'timeFilter'
-    
-    const ikb = new InlineKeyboard()
-      .text('1 минута', 'time:1min').text('1 час', 'time:1hour').row()
-      .text('4 часа', 'time:4hours').text('12 часов', 'time:12hours').row()
-      .text('1 день', 'time:1day').text('1 неделя', 'time:1week').row()
-      .text('❌ Отмена', 'cancel')
-    
-    await ctx.reply('Укажите, сколько времени назад должно быть опубликовано объявление:', { reply_markup: ikb })
-    return
-  }
-  if (step === 'timeFilter') {
-    ctx.session.filters.timeFilter = ctx.message.text
-    ctx.session.filters.step = null
-    try {
-      await axios.post(`${API_URL}/set-location`, { city: ctx.session.filters.city, radius: ctx.session.filters.radius })
-      await axios.post(`${API_URL}/set-price-filter`, { minPrice: ctx.session.filters.minPrice, maxPrice: ctx.session.filters.maxPrice })
-      if ((ctx.session.filters.minYear !== undefined && ctx.session.filters.minYear > 0) || 
-          (ctx.session.filters.maxYear !== undefined && ctx.session.filters.maxYear > 0)) {
-        try {
-          await axios.post(`${API_URL}/set-year-filter`, { 
-            minYear: (ctx.session.filters.minYear !== undefined && ctx.session.filters.minYear > 0) ? ctx.session.filters.minYear : null, 
-            maxYear: (ctx.session.filters.maxYear !== undefined && ctx.session.filters.maxYear > 0) ? ctx.session.filters.maxYear : null 
-          });
-        } catch (yearError: any) {
-          if (yearError.response && yearError.response.status === 404) {
-            console.log('Фильтр года не найден, будет применена сортировка по году из заголовка')
-          } else {
-            console.error('Ошибка при установке фильтра года:', yearError.message || yearError);
-          }
-        }
-      }
-      await ctx.reply('✅ Фильтры сохранены! Теперь можешь запустить мониторинг.', { reply_markup: mainMenu })
-    } catch (error) {
-      console.error('Ошибка при применении фильтров:', error)
-      await ctx.reply('❌ ФАТАЛЬНАЯ ОШИБКА: Не удалось применить фильтры. Система недоступна.', { reply_markup: mainMenu })
-    }
-=======
-    
     // Переходим к выбору максимального возраста объявления
     ctx.session.filters.step = 'ageLimit'
     const ageKb = new InlineKeyboard()
@@ -478,7 +430,6 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
       .text('день', 'age:1440').text('неделя', 'age:10080').row()
       .text('❌ Отмена', 'cancel')
     await ctx.reply('Выбери максимальный возраст объявления:', { reply_markup: ageKb })
->>>>>>> fbca6f0 (вува)
     return
   }
   await next()
@@ -491,70 +442,6 @@ bot.callbackQuery(/^radius:(\d+)/, async (ctx: MyContext) => {
   ctx.session.filters.step = 'minPrice'
   await ctx.editMessageText(`Радиус выбран: ${ctx.session.filters.radius} миль`)
   await ctx.reply('Введи минимальную цену (или 0 если фри цена):')
-})
-
-bot.callbackQuery(/^time:(\w+)/, async (ctx: MyContext) => {
-  if (ctx.session.filters.step !== 'timeFilter') return ctx.answerCallbackQuery()
-  if (!ctx.match) return ctx.answerCallbackQuery()
-  
-  const timeValue = ctx.match[1]
-  ctx.session.filters.timeFilter = timeValue
-  ctx.session.filters.step = null
-  
-  let displayText = 'Неизвестный временной фильтр'
-  
-  switch (timeValue) {
-    case '1min':
-      displayText = '1 минута'
-      break
-    case '1hour':
-      displayText = '1 час'
-      break
-    case '4hours':
-      displayText = '4 часа'
-      break
-    case '12hours':
-      displayText = '12 часов'
-      break
-    case '1day':
-      displayText = '1 день'
-      break
-    case '1week':
-      displayText = '1 неделя'
-      break
-  }
-  
-  await ctx.editMessageText(`Временной фильтр выбран: ${displayText}`)
-  
-  try {
-    await axios.post(`${API_URL}/set-location`, { city: ctx.session.filters.city, radius: ctx.session.filters.radius })
-    await axios.post(`${API_URL}/set-price-filter`, { minPrice: ctx.session.filters.minPrice, maxPrice: ctx.session.filters.maxPrice })
-    if ((ctx.session.filters.minYear !== undefined && ctx.session.filters.minYear > 0) || 
-        (ctx.session.filters.maxYear !== undefined && ctx.session.filters.maxYear > 0)) {
-      try {
-        await axios.post(`${API_URL}/set-year-filter`, { 
-          minYear: (ctx.session.filters.minYear !== undefined && ctx.session.filters.minYear > 0) ? ctx.session.filters.minYear : null, 
-          maxYear: (ctx.session.filters.maxYear !== undefined && ctx.session.filters.maxYear > 0) ? ctx.session.filters.maxYear : null 
-        });
-      } catch (yearError: any) {
-        if (yearError.response && yearError.response.status === 404) {
-          console.log('Фильтр года не найден, будет применена сортировка по году из заголовка')
-        } else {
-          console.error('Ошибка при установке фильтра года:', yearError.message || yearError);
-        }
-      }
-    }
-    await ctx.reply('✅ Фильтры сохранены! Теперь можешь запустить мониторинг.', { reply_markup: mainMenu })
-  } catch (error) {
-    console.error('Ошибка при применении фильтров:', error)
-    await ctx.reply('❌ ФАТАЛЬНАЯ ОШИБКА: Не удалось применить фильтры. Система недоступна.', { reply_markup: mainMenu })
-  }
-})
-
-bot.callbackQuery('cancel', async (ctx: MyContext) => {
-  ctx.session.filters = { step: null }
-  await ctx.editMessageText('✓')
-  await ctx.reply('Выбери действие:', { reply_markup: mainMenu })
 })
 
 bot.callbackQuery(/^age:(\d+)/, async (ctx: MyContext) => {
@@ -601,13 +488,6 @@ bot.hears('🔎 Запустить мониторинг', async (ctx: MyContext)
   ctx.session.consecutiveEmptyScans = 0;
   ctx.session.lastStatusMessageId = undefined;
   console.log(`[Мониторинг] Сброшены счетчики мониторинга (кэш дубликатов сохранен)`);
-  
-  // Логируем выбранный временной фильтр
-  if (f.timeFilter) {
-    console.log(`[Мониторинг] Выбран временной фильтр: ${f.timeFilter}`);
-  } else {
-    console.log(`[Мониторинг] Временной фильтр не выбран`);
-  }
   
   try {
     await axios.post(`${API_URL}/navigate-to-marketplace`, {});
@@ -688,16 +568,7 @@ async function sendListings(ctx: MyContext) {
       return;
     }
 
-    // Добавляем временной фильтр в запрос
-    const timeFilter = ctx.session.filters.timeFilter;
-    let apiUrl = `${API_URL}/listings?count=10`;
-    
-    if (timeFilter) {
-      console.log(`[sendListings] Применяем временной фильтр: ${timeFilter}`);
-      apiUrl += `&timeFilter=${encodeURIComponent(timeFilter)}`;
-    }
-    
-    const res = await axios.get(apiUrl);
+    const res = await axios.get(`${API_URL}/listings?count=10`);
     
     if (!res.data || !res.data.items) {
       console.log('[sendListings] Некорректный ответ API');
@@ -1008,31 +879,8 @@ bot.hears('📋 Мои фильтры', async (ctx: MyContext) => {
     filterText += `\nГод выпуска: ${minYearStr}–${maxYearStr}`;
   }
   
-  if (f.timeFilter) {
-    let timeFilterDisplay = "Не указан";
-    
-    switch (f.timeFilter) {
-      case '1min':
-        timeFilterDisplay = '1 минута';
-        break;
-      case '1hour':
-        timeFilterDisplay = '1 час';
-        break;
-      case '4hours':
-        timeFilterDisplay = '4 часа';
-        break;
-      case '12hours':
-        timeFilterDisplay = '12 часов';
-        break;
-      case '1day':
-        timeFilterDisplay = '1 день';
-        break;
-      case '1week':
-        timeFilterDisplay = '1 неделя';
-        break;
-    }
-    
-    filterText += `\nВремя публикации: ${timeFilterDisplay}`;
+  if (f.maxAgeMinutes) {
+    filterText += `\nМаксимальный возраст: ${f.maxAgeMinutes} мин.`;
   }
   
   await ctx.reply(filterText, { reply_markup: mainMenu })
