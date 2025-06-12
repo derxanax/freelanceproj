@@ -1,0 +1,100 @@
+{
+  "categories": [
+    {
+      "name": "Транспортные средства",
+      "id": "«r9»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Транспортные средства')"
+    },
+    {
+      "name": "Аренда недвижимости",
+      "id": "«ra»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Аренда недвижимости')"
+    },
+    {
+      "name": "Бесплатные предложения",
+      "id": "«rb»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Бесплатные предложения')"
+    },
+    {
+      "name": "Игрушки и игры",
+      "id": "«rc»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Игрушки и игры')"
+    },
+    {
+      "name": "Музыкальные инструменты",
+      "id": "«rd»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Музыкальные инструменты')"
+    },
+    {
+      "name": "Обустройство дома",
+      "id": "«re»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Обустройство дома')"
+    },
+    {
+      "name": "Объявления",
+      "id": "«rf»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Объявления')"
+    },
+    {
+      "name": "Одежда",
+      "id": "«rg»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Одежда')"
+    },
+    {
+      "name": "Продажа недвижимости",
+      "id": "«rh»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Продажа недвижимости')"
+    },
+    {
+      "name": "Развлечения",
+      "id": "«ri»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Развлечения')"
+    },
+    {
+      "name": "Семья",
+      "id": "«rj»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Семья')"
+    },
+    {
+      "name": "Спортивные товары",
+      "id": "«rk»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Спортивные товары')"
+    },
+    {
+      "name": "Товары для дома",
+      "id": "«rl»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Товары для дома')"
+    },
+    {
+      "name": "Товары для домашних животных",
+      "id": "«rm»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Товары для домашних животных')"
+    },
+    {
+      "name": "Товары для офиса",
+      "id": "«rn»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Товары для офиса')"
+    },
+    {
+      "name": "Товары для улицы и сада",
+      "id": "«ro»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Товары для улицы и сада')"
+    },
+    {
+      "name": "Хобби",
+      "id": "«rp»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Хобби')"
+    },
+    {
+      "name": "Электроника",
+      "id": "«rq»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Электроника')"
+    },
+    {
+      "name": "Другие категории",
+      "id": "«rr»",
+      "selector": "span.x193iq5w[dir='auto']:contains('Другие категории')"
+    }
+  ],
+  "lastUpdated": "2023-05-20T15:40:00.000Z"
+} 
