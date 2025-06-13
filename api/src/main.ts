@@ -12,6 +12,7 @@ let API_PORT = 3562;
 const BACKUP_PORTS = [3563, 3564, 3565, 3566, 3567];
 
 const imageCache = new Map<string, string>();
+const MAX_IMAGE_CACHE = 5000;
 
 function generateStableFileName(title: string, price: string, location: string): string {
   const contentKey = `${title}_${price}_${location}`;
@@ -891,6 +892,11 @@ function setupApiServer() {
       });
     });
   });
+  app.post('/clear-image-cache', (req, res) => {
+    handleClearImageCache(req, res).catch(error => {
+      res.status(500).json({ success: false, error: String(error) });
+    });
+  });
   return new Promise<number>((resolve, reject) => {
     function tryListen(port: number, backupIndex: number = 0) {
       apiServer = app.listen(port, () => {
@@ -1205,6 +1211,10 @@ function parseAgeToMinutes(raw: string): number | null {
       if (val >= 1 && val <= 4) return val * 10080;
       return null;
     }
+    // "день", "дня", "дн." без числа
+    if (/^д(ень|ня|н\.)/.test(raw)) return 1440;
+    // "неделю", "нед.", "нед назад"
+    if (/^нед(елю|\.|\b)/.test(raw)) return 10080;
     return null;
   } catch {
     return null;
@@ -1762,6 +1772,7 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
             console.log(`Изображение сохранено: ${filePath}`);
             item.savedImagePath = `src/img/${fileName}`;
             imageCache.set(contentKey, fileName);
+            pruneImageCache();
             imageStats.downloaded++;
           }
         } catch (error) {
@@ -2421,6 +2432,43 @@ async function handleSetAgeFilter(req: Request, res: Response): Promise<Response
   }
   currentAppState.maxAgeMinutes = Number(maxAgeMinutes);
   return res.json({ success: true, applied: { maxAgeMinutes: currentAppState.maxAgeMinutes } });
+}
+
+function pruneImageCache() {
+  if (imageCache.size > MAX_IMAGE_CACHE) {
+    const excess = imageCache.size - MAX_IMAGE_CACHE;
+    const keys = Array.from(imageCache.keys()).slice(0, excess);
+    for (const k of keys) imageCache.delete(k);
+    console.log(`pruneImageCache trimmed to ${imageCache.size}`);
+  }
+}
+
+async function clearImages(): Promise<void> {
+  try {
+    const imgDir = path.join(process.cwd(), 'api', 'src', 'img');
+    if (!fs.existsSync(imgDir)) return;
+    const files = fs.readdirSync(imgDir);
+    const threshold = Date.now() - 30 * 60 * 1000;
+    for (const f of files) {
+      const filePath = path.join(imgDir, f);
+      try {
+        const st = fs.statSync(filePath);
+        if (st.mtime.getTime() < threshold) fs.unlinkSync(filePath);
+      } catch {}
+    }
+  } catch (e) {
+    console.error('clearImages error', e);
+  }
+}
+
+async function handleClearImageCache(req: Request, res: Response): Promise<Response> {
+  try {
+    imageCache.clear();
+    await clearImages();
+    return res.json({ success: true, cleared: true });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: String(error) });
+  }
 }
 
 openFacebookMarketplace().catch(error => {

@@ -58,7 +58,7 @@ async function tryRestartApiServer(): Promise<boolean> {
     console.log(`Запускаем API сервер: ${apiPath}`);
     const nodeProcess = require('child_process').spawn(
       'node', 
-      [apiPath],
+      ['--expose-gc', apiPath],
       { 
         detached: true, 
         stdio: 'ignore',
@@ -280,6 +280,57 @@ try {
   console.error('Ошибка при инициализации БД:', e)
 }
 
+const MAX_GLOBAL_URLS = 50_000;
+const MAX_SESSION_URLS = 5_000;
+const FLUSH_INTERVAL = 30 * 60 * 1000;
+
+function flushGlobalUrlsToDB(retain: number = 1000) {
+  try {
+    if (ALL_KNOWN_URLS.size === 0) return;
+    let savedCount = 0;
+    const timestamp = Date.now();
+    const insertStmt = db.prepare('INSERT OR IGNORE INTO sent_items (itemUrl, timestamp) VALUES (?, ?)');
+
+    const transaction = db.transaction(() => {
+      ALL_KNOWN_URLS.forEach(url => {
+        if (url.startsWith('http')) {
+          const result = insertStmt.run(url, timestamp);
+          if (result.changes > 0) savedCount++;
+        }
+      });
+    });
+
+    transaction();
+    if (savedCount > 0) {
+      console.log(`[flushGlobalUrlsToDB] Saved ${savedCount} URLs to DB`);
+    }
+    if (ALL_KNOWN_URLS.size > retain) {
+      const arr = Array.from(ALL_KNOWN_URLS);
+      ALL_KNOWN_URLS.clear();
+      for (let i = Math.max(0, arr.length - retain); i < arr.length; i++) {
+        ALL_KNOWN_URLS.add(arr[i]);
+      }
+      console.log(`[flushGlobalUrlsToDB] Trimmed global cache to ${ALL_KNOWN_URLS.size}`);
+    }
+  } catch (error) {
+    console.error('[flushGlobalUrlsToDB] Error:', error);
+  }
+}
+
+function pruneSessionCache(ctx: MyContext) {
+  try {
+    if (ctx.session.sent.size > MAX_SESSION_URLS) {
+      const excess = ctx.session.sent.size - MAX_SESSION_URLS;
+      const arr = Array.from(ctx.session.sent);
+      for (let i = 0; i < excess; i++) {
+        ctx.session.sent.delete(arr[i]);
+      }
+      console.log(`[pruneSessionCache] Trimmed session cache to ${ctx.session.sent.size}`);
+    }
+  } catch (error) {
+    console.error('[pruneSessionCache] Error:', error);
+  }
+}
 
 async function startFilterWizard(ctx: MyContext) {
   ctx.session.filters = { step: 'query' }
@@ -627,6 +678,9 @@ async function sendListings(ctx: MyContext) {
     
     console.log(`[sendListings] Новых: ${uniqueItems.length}, дубликатов: ${duplicatesRemoved}`);
     
+    pruneSessionCache(ctx);
+    if (ALL_KNOWN_URLS.size >= MAX_GLOBAL_URLS) flushGlobalUrlsToDB();
+    
     // Логика уведомлений о результатах сканирования
     if (uniqueItems.length > 0) {
       // Найдены новые объявления - сбрасываем счетчик и удаляем старое статусное сообщение
@@ -896,40 +950,44 @@ bot.hears('ℹ️ Справка', async (ctx: MyContext) => {
 bot.catch((err: any) => console.error('Ошибка:', err))
 bot.start()
 
+setInterval(() => flushGlobalUrlsToDB(), FLUSH_INTERVAL);
+
+setInterval(() => {
+  const heapUsed = process.memoryUsage().heapUsed;
+  console.log(`[Memory] heapUsed ${(heapUsed / 1024 / 1024).toFixed(1)} MB`);
+  if (heapUsed > 3 * 1024 * 1024 * 1024) {
+    console.log('[Memory] Threshold exceeded, flushing caches');
+    flushGlobalUrlsToDB();
+    axios.post(`${API_URL}/clear-image-cache`).catch(() => {});
+    if ((global as any).gc) (global as any).gc();
+  }
+}, 10 * 60 * 1000);
+
 function saveAllCacheToDB() {
   try {
-    console.log(`[Завершение] Сохранение ${ALL_KNOWN_URLS.size} URL из кэша в базу данных...`);
-    let savedCount = 0;
+    console.log(`[Shutdown] Saving ${ALL_KNOWN_URLS.size} URLs to DB...`);
     const timestamp = Date.now();
-    
     const insertStmt = db.prepare('INSERT OR IGNORE INTO sent_items (itemUrl, timestamp) VALUES (?, ?)');
-    
     const transaction = db.transaction(() => {
       ALL_KNOWN_URLS.forEach(url => {
-        // Проверяем, что это URL, а не contentKey (contentKey обычно не содержит http)
-        if (url.startsWith('http')) {
-          const result = insertStmt.run(url, timestamp);
-          if (result.changes > 0) savedCount++;
-        }
+        if (url.startsWith('http')) insertStmt.run(url, timestamp);
       });
     });
-    
     transaction();
-    
-    console.log(`[Завершение] Сохранено ${savedCount} новых URL в базу данных`);
+    console.log('[Shutdown] Done');
   } catch (error) {
-    console.error('[Завершение] Ошибка при сохранении кэша в БД:', error);
+    console.error('[Shutdown] Error:', error);
   }
 }
 
 process.on('SIGINT', () => {
-  console.log('[Завершение] Получен сигнал SIGINT, сохраняем данные...');
+  console.log('[Shutdown] SIGINT');
   saveAllCacheToDB();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  console.log('[Завершение] Получен сигнал SIGTERM, сохраняем данные...');
+  console.log('[Shutdown] SIGTERM');
   saveAllCacheToDB();
   process.exit(0);
 });
