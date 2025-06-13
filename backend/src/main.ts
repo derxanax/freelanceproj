@@ -448,24 +448,24 @@ bot.callbackQuery(/^age:(\d+)/, async (ctx: MyContext) => {
   if (ctx.session.filters.step !== 'ageLimit') return ctx.answerCallbackQuery()
   if (!ctx.match) return ctx.answerCallbackQuery()
   ctx.session.filters.maxAgeMinutes = Number(ctx.match[1])
-  ctx.session.filters.step = null
+    ctx.session.filters.step = null
   await ctx.editMessageText(`Максимальный возраст: ${ctx.session.filters.maxAgeMinutes} мин.`)
-  try {
-    await axios.post(`${API_URL}/set-location`, { city: ctx.session.filters.city, radius: ctx.session.filters.radius })
-    await axios.post(`${API_URL}/set-price-filter`, { minPrice: ctx.session.filters.minPrice, maxPrice: ctx.session.filters.maxPrice })
-    if ((ctx.session.filters.minYear !== undefined && ctx.session.filters.minYear > 0) || 
-        (ctx.session.filters.maxYear !== undefined && ctx.session.filters.maxYear > 0)) {
-      await axios.post(`${API_URL}/set-year-filter`, { 
+    try {
+      await axios.post(`${API_URL}/set-location`, { city: ctx.session.filters.city, radius: ctx.session.filters.radius })
+      await axios.post(`${API_URL}/set-price-filter`, { minPrice: ctx.session.filters.minPrice, maxPrice: ctx.session.filters.maxPrice })
+      if ((ctx.session.filters.minYear !== undefined && ctx.session.filters.minYear > 0) || 
+          (ctx.session.filters.maxYear !== undefined && ctx.session.filters.maxYear > 0)) {
+          await axios.post(`${API_URL}/set-year-filter`, { 
         minYear: ctx.session.filters.minYear ?? null,
         maxYear: ctx.session.filters.maxYear ?? null
       }).catch(() => {})
     }
     await axios.post(`${API_URL}/set-age-filter`, { maxAgeMinutes: ctx.session.filters.maxAgeMinutes })
-    await ctx.reply('✅ Фильтры сохранены! Теперь можешь запустить мониторинг.', { reply_markup: mainMenu })
-  } catch (error) {
-    console.error('Ошибка при применении фильтров:', error)
+      await ctx.reply('✅ Фильтры сохранены! Теперь можешь запустить мониторинг.', { reply_markup: mainMenu })
+    } catch (error) {
+      console.error('Ошибка при применении фильтров:', error)
     await ctx.reply('❌ ФАТАЛЬНАЯ ОШИБКА: Не удалось применить фильтры.', { reply_markup: mainMenu })
-  }
+    }
 })
 
 const monitoringIntervals = new Map<number, NodeJS.Timeout>();

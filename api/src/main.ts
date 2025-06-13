@@ -1168,12 +1168,43 @@ function extractYearFromTitle(title: string): number | null {
 function parseAgeToMinutes(raw: string): number | null {
   try {
     raw = raw.toLowerCase().trim();
-    const numMatch = raw.match(/\d+/);
-    const num = numMatch ? parseInt(numMatch[0], 10) : 1; // если "неделю" без числа → 1
-    if (raw.includes('мин')) return num;
-    if (raw.includes('час')) return num * 60;
-    if (raw.includes('день')) return num * 60 * 24;
-    if (raw.includes('нед')) return num * 60 * 24 * 7;
+    // Удаляем лишние символы
+    raw = raw.replace(/\s+/g, ' ');
+    // Минуты
+    if (/^(\d{1,2}) ?мин(\.|ут|уты|уту|утами)?/.test(raw)) {
+      const m = raw.match(/(\d{1,2}) ?мин/);
+      if (!m) return null;
+      const val = parseInt(m[1], 10);
+      if (val >= 1 && val <= 59) return val;
+      return null;
+    }
+    // Часы
+    if (/^(\d{1,2}) ?ч(\.|ас|аса|асов|асами)?/.test(raw) || /^(\d{1,2}) ?час(а|ов|ами)?/.test(raw)) {
+      const m = raw.match(/(\d{1,2}) ?ч/);
+      if (!m) return null;
+      const val = parseInt(m[1], 10);
+      if (val >= 1 && val <= 23) return val * 60;
+      return null;
+    }
+    // Дни
+    if (/^(\d{1,2}) ?д(н\.|ень|ня|ней|нями)?/.test(raw) || /^(\d{1,2}) ?день/.test(raw)) {
+      const m = raw.match(/(\d{1,2}) ?д/);
+      if (!m) return null;
+      const val = parseInt(m[1], 10);
+      if (val >= 1 && val <= 6) return val * 1440;
+      return null;
+    }
+    // "день назад"
+    if (/^день/.test(raw)) return 1440;
+    // Неделя
+    if (/^недел/.test(raw)) return 10080;
+    if (/^(\d{1,2}) ?недел/.test(raw)) {
+      const m = raw.match(/(\d{1,2}) ?недел/);
+      if (!m) return null;
+      const val = parseInt(m[1], 10);
+      if (val >= 1 && val <= 4) return val * 10080;
+      return null;
+    }
     return null;
   } catch {
     return null;

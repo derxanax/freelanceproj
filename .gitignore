@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+*/dist/
 backend/node_modules/.package-lock.json
 backend/node_modules/.bin/nodemon
 backend/node_modules/.bin/nodetouch
@@ -3123,3 +3123,6 @@ backend/sessions/fb-browser-session/storage/permanent/chrome/idb/3561288849sdhli
 backend/sessions/fb-browser-session/storage/permanent/chrome/idb/3561288849sdhlie.sqlite-wal
 backend/sessions/fb-browser-session/storage/permanent/chrome/idb/3870112724rsegmnoittet-es.sqlite
 backend/sessions/fb-browser-session/storage/permanent/chrome/idb/3870112724rsegmnoittet-es.sqlite-wal
+.gitignore
+backend/dist/main.js
+backend/dist/main.js
