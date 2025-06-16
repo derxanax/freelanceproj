@@ -442,12 +442,12 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
         ctx.session.filters.lon = geoRes.data.lon;
         ctx.session.filters.step = 'radius';
 
-        const ikb = new InlineKeyboard()
-          .text('2 миль', 'radius:2').text('5 миль', 'radius:5').row()
-          .text('10 миль', 'radius:10').text('20 миль', 'radius:20').row()
-          .text('40 миль', 'radius:40').text('60 миль', 'radius:60').row()
-          .text('80 миль', 'radius:80').text('100 миль', 'radius:100').row()
-          .text('250 миль', 'radius:250').text('500 миль', 'radius:500').row()
+    const ikb = new InlineKeyboard()
+      .text('2 миль', 'radius:2').text('5 миль', 'radius:5').row()
+      .text('10 миль', 'radius:10').text('20 миль', 'radius:20').row()
+      .text('40 миль', 'radius:40').text('60 миль', 'radius:60').row()
+      .text('80 миль', 'radius:80').text('100 миль', 'radius:100').row()
+      .text('250 миль', 'radius:250').text('500 миль', 'radius:500').row()
           .text('❌ Отмена', 'cancel');
         await ctx.reply('Выбери радиус поиска:', { reply_markup: ikb });
       } else {

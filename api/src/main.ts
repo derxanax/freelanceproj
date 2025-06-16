@@ -1495,7 +1495,7 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
                   if (inner) {
                     const textDiv = inner.querySelector('div.xod5an3.x16n37ib.x14vqqas.x1n2onr6.xqcrz7y');
                     if (textDiv) {
-                      const targetSpan = radio.querySelector('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x1xmvt09.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.xudqn12.x3x7a5m.x6prxxf.xvq8zen.xk50ysn.xzsf02u.x1yc453h');
+                      const targetSpan = radio.querySelector('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x10flsy6.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.x4zkp8e.x41vudc.x6prxxf.xvq8zen.x1s688f.xzsf02u');
                       if (targetSpan && targetSpan.textContent && targetSpan.textContent.includes('Дата публикации: сначала новые')) {
                         console.log('Найден точный элемент по HTML структуре');
                         (radio as HTMLElement).click();
@@ -1558,7 +1558,7 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
     }
     let items = await globalPage.evaluate((maxCount: number) => {
       const results: MarketplaceItem[] = [];
-      const containers = document.querySelectorAll('div.x9f619.x78zum5.xdt5ytf.x1qughib.x1rdy4ex.xz9dl7a.xsag5q8.xh8yej3.xp0eagm.x1nrcals');
+      const containers = document.querySelectorAll('div.x9f619.x78zum5.xdt5ytf.x1qughib.x1rdy4ex.xz9dl7a.xsag5q8.xh8yej3.xp0eagm.x1nrcals, div[aria-hidden="false"] h1');
       const productCards: Element[] = [];
       containers.forEach(container => {
         let parent = container.parentElement;
@@ -1591,28 +1591,23 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
         const priceElement = card.querySelector('span.x193iq5w[dir="auto"]');
         if (priceElement) {
           price = priceElement.textContent || "Цена не указана";
+        } else {
+          const priceAlt = card.querySelector('div.x1xmf6yo span');
+          if (priceAlt) price = priceAlt.textContent || price;
         }
         const titleElement = card.querySelector('span.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6[style*="-webkit-box-orient"]');
         if (titleElement) {
           title = titleElement.textContent || "Без названия";
         } else {
-          const titleElements = card.querySelectorAll('span[dir="auto"]');
-          if (titleElements && titleElements.length > 1) {
-            title = titleElements[1].textContent || "Без названия";
-          }
+          const tAlt = card.querySelector('h1 span');
+          if (tAlt) title = tAlt.textContent || title;
         }
         const locationElement = card.querySelector('span.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6.xlyipyv.xuxw1ft');
         if (locationElement) {
           location = locationElement.textContent || "";
         } else {
-          const allSpans = Array.from(card.querySelectorAll('span[dir="auto"]'));
-          if (allSpans.length > 2) {
-            location = allSpans[allSpans.length - 1].textContent || "";
-          } else if (allSpans.length > 0) {
-            location = allSpans[allSpans.length - 1].textContent || "";
-          } else {
-            location = "";
-          }
+          const locAlt = card.querySelector('a[href*="/marketplace/"] span');
+          if (locAlt) location = locAlt.textContent || '';
         }
         const imageElement = card.querySelector('img.x168nmei.x13lgxp2');
         if (imageElement) {
@@ -1961,16 +1956,66 @@ async function handleSetLocation(req: Request, res: Response): Promise<Response>
   }
   try {
     console.log('[set-location] start', { city, radius });
-    if (latitude !== undefined && longitude !== undefined && !isNaN(Number(latitude)) && !isNaN(Number(longitude))) {
-      try {
-        const ctx = globalPage.context();
-        await ctx.grantPermissions(['geolocation']);
-        await ctx.setGeolocation({ latitude: Number(latitude), longitude: Number(longitude), accuracy: 50 });
-        console.log(`[set-location] Geolocation applied lat=${latitude} lon=${longitude}`);
-      } catch (geoErr) {
-        console.error('[set-location] geolocation error', geoErr);
-      }
+    if (latitude === undefined || longitude === undefined || isNaN(Number(latitude)) || isNaN(Number(longitude))) {
+      return res.status(400).json({ success: false, error: 'latitude_longitude_required' });
     }
+
+    // quick geolocation path executed below
+
+    try {
+      const ctx = globalPage.context();
+      await ctx.grantPermissions(['geolocation']);
+      await ctx.setGeolocation({ latitude: Number(latitude), longitude: Number(longitude), accuracy: 50 });
+      console.log(`[set-location] Geolocation applied lat=${latitude} lon=${longitude}`);
+
+      // attempt to click compass with multiple strategies
+      let compassClicked = false;
+      try {
+        const compassCss = 'div[aria-label^="Выбор геолокации"][role="button"]';
+        const compass = await globalPage.$(compassCss);
+        if (compass) {
+          await safeClick(globalPage, compass);
+          compassClicked = true;
+        }
+      } catch {}
+      if (!compassClicked) {
+        console.log('[set-location] Compass not found directly, opening location menu…');
+        try {
+          const menuBtn = await findElement(globalPage, [
+            '#seo_filters div[role="button"]',
+            'div[aria-label*="геолокации"][role="button"]',
+            '.x1i10hfl.xjbqb8w[role="button"]'
+          ], 'кнопка меню местоположения');
+          if (menuBtn) {
+            await safeClick(globalPage, menuBtn);
+            await globalPage.waitForTimeout(800);
+            const compass2 = await findElement(globalPage, [
+              'i.xep6ejk',
+              'div[role="button"] i[data-visualcompletion="css-img"]'
+            ], 'кнопка компаса');
+            if (compass2) {
+              await safeClick(globalPage, compass2);
+              compassClicked = true;
+            }
+          }
+        } catch (fallbackErr) {
+          console.error('[set-location] compass fallback error', fallbackErr);
+        }
+      }
+      console.log(`[set-location] compassClicked_final=${compassClicked}`);
+
+      // сохраняем в state
+      currentAppState.location = city;
+      currentAppState.radius = radius;
+
+      console.log(`[set-location] params received: city=${city}, radius=${radius}, lat=${latitude}, lon=${longitude}`);
+
+      return res.json({ success: true, message: 'Геолокация установлена', status: 'completed' });
+    } catch (geoErr) {
+      console.error('[set-location] geolocation flow error', geoErr);
+      // fallthrough to manual flow
+    }
+
     let cityBlock = await globalPage.$('#seo_filters div[role="button"]');
     let cityBlockSelector = '#seo_filters div[role="button"]';
     if (!cityBlock) {
