@@ -319,6 +319,7 @@ interface MarketplaceItem {
   imageUrl: string;
   itemUrl: string;
   savedImagePath?: string;
+  ageMinutes?: number;
 }
 interface ListingsResult {
   success: boolean;
@@ -1558,7 +1559,7 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
     }
     let items = await globalPage.evaluate((maxCount: number) => {
       const results: MarketplaceItem[] = [];
-      const containers = document.querySelectorAll('div.x9f619.x78zum5.xdt5ytf.x1qughib.x1rdy4ex.xz9dl7a.xsag5q8.xh8yej3.xp0eagm.x1nrcals, div[aria-hidden="false"] h1');
+      const containers = document.querySelectorAll('div.x9f619.x78zum5.xdt5ytf.x1qughib.x1rdy4ex.xz9dl7a.xsag5q8.xh8yej3.xp0eagm.x1nrcals, div[aria-hidden="false"] h1, div.xyamay9.xv54qhq.x18d9i69.xf7dkkf, div.x9f619.x1ja2u2z.x78zum5.x2lah0s.xyamay9');
       const productCards: Element[] = [];
       containers.forEach(container => {
         let parent = container.parentElement;
@@ -1628,12 +1629,29 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
             itemUrl = "";
           }
         }
+        // попытка вытащить возраст объявления
+        let ageMinutes: number | null = null;
+        try {
+          const abbr = card.querySelector('abbr[aria-label]');
+          if (abbr) {
+            const raw = abbr.getAttribute('aria-label') || '';
+            const txt = raw.toLowerCase().trim();
+            const m = txt.match(/(\d+)/);
+            const val = m ? parseInt(m[1], 10) : 0;
+            if (/мин/.test(txt)) ageMinutes = val;
+            else if (/ч/.test(txt) || /час/.test(txt)) ageMinutes = val * 60;
+            else if (/дн/.test(txt) || /день/.test(txt)) ageMinutes = val * 1440;
+            else if (/нед/.test(txt)) ageMinutes = val ? val * 10080 : 10080;
+          }
+        } catch {}
+
         results.push({
           price: price.trim(),
           title: title.trim(),
           location: location.trim(),
           imageUrl,
-          itemUrl
+          itemUrl,
+          ageMinutes: ageMinutes === null ? undefined : ageMinutes
         });
       }
       return results;
@@ -1704,15 +1722,18 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
       console.log(`Применяем фильтр по возрасту: не старше ${currentAppState.maxAgeMinutes} минут`);
       const ageFiltered: MarketplaceItem[] = [];
       for (const itm of items) {
-        const age = await getListingAgeMinutes(itm.itemUrl);
-        if (age === null) {
+        let ageVal: number | null = itm.ageMinutes !== undefined ? itm.ageMinutes : null;
+        if (ageVal === null) {
+          ageVal = await getListingAgeMinutes(itm.itemUrl);
+        }
+        if (ageVal === null) {
           console.log(`⚠️ Не удалось определить возраст: ${itm.itemUrl}`);
           continue; // пропускаем при ошибке
         }
-        if (age <= currentAppState.maxAgeMinutes) {
+        if (ageVal <= currentAppState.maxAgeMinutes) {
           ageFiltered.push(itm);
         } else {
-          console.log(`Отфильтровано по возрасту (${age} мин > ${currentAppState.maxAgeMinutes}): ${itm.title}`);
+          console.log(`Отфильтровано по возрасту (${ageVal} мин > ${currentAppState.maxAgeMinutes}): ${itm.title}`);
         }
       }
       items = ageFiltered;
