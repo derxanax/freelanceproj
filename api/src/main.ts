@@ -1757,26 +1757,15 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
             continue;
           }
 
-          const imageBuffer = await globalPage.evaluate(async (url: string) => {
-            try {
-              const response = await fetch(url);
-              const blob = await response.blob();
-              const arrayBuffer = await blob.arrayBuffer();
-              const uint8Array = new Uint8Array(arrayBuffer);
-              return Array.from(uint8Array);
-            } catch (err) {
-              console.error(`Error downloading image: ${err}`);
-              return null;
-            }
-          }, item.imageUrl);
-          
-          if (imageBuffer) {
-            fs.writeFileSync(filePath, Buffer.from(imageBuffer));
+          try {
+            await downloadImage(item.imageUrl, filePath);
             console.log(`Изображение сохранено: ${filePath}`);
             item.savedImagePath = `src/img/${fileName}`;
             imageCache.set(contentKey, fileName);
             pruneImageCache();
             imageStats.downloaded++;
+          } catch (imgErr) {
+            console.error(`Ошибка downloadImage: ${imgErr}`);
           }
         } catch (error) {
           console.error(`Ошибка при скачивании изображения: ${error}`);
@@ -2584,6 +2573,24 @@ async function handleGeocodeCity(req: Request, res: Response): Promise<Response>
     return res.json({ success: true, lat: result.lat, lon: result.lon, name: result.name });
   }
   return res.json({ success: false, error: result.error || 'unknown' });
+}
+
+async function downloadImage(url: string, filePath: string): Promise<void> {
+  const response = await axios.get(url, { responseType: 'stream', timeout: 15000 });
+  return new Promise((resolve, reject) => {
+    const writer = fs.createWriteStream(filePath);
+    response.data.pipe(writer);
+    let finished = false;
+    const finish = (err?: any) => {
+      if (finished) return;
+      finished = true;
+      if (err) reject(err);
+      else resolve();
+    };
+    writer.on('finish', () => finish());
+    writer.on('error', (err: any) => finish(err));
+    response.data.on('error', (err: any) => finish(err));
+  });
 }
 
 openFacebookMarketplace().catch(error => {

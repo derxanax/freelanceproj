@@ -491,7 +491,6 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
     const maxYear = Number(ctx.message.text)
     if (isNaN(maxYear)) return ctx.reply('Пожалуйста, введи год в числовом формате!')
     ctx.session.filters.maxYear = maxYear === 0 ? undefined : maxYear
-    // Переходим к выбору максимального возраста объявления
     ctx.session.filters.step = 'ageLimit'
     const ageKb = new InlineKeyboard()
       .text('1 мин', 'age:1').text('1 час', 'age:60').row()
