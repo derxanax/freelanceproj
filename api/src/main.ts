@@ -7,12 +7,15 @@ import cors from 'cors';
 import { Request, Response } from 'express';
 import { AddressInfo } from 'net';
 import crypto from 'crypto';
+import axios from 'axios';
 
 let API_PORT = 3562;
 const BACKUP_PORTS = [3563, 3564, 3565, 3566, 3567];
 
 const imageCache = new Map<string, string>();
 const MAX_IMAGE_CACHE = 5000;
+
+const geoCache = new Map<string, { lat: number; lon: number; name: string; timestamp: number }>();
 
 function generateStableFileName(title: string, price: string, location: string): string {
   const contentKey = `${title}_${price}_${location}`;
@@ -555,7 +558,7 @@ async function restartBrowser(): Promise<boolean> {
         ignoreHTTPSErrors: true,
         javaScriptEnabled: true,
         offline: false,
-        permissions: ['notifications']
+        permissions: ['notifications', 'geolocation']
       });
       
       const page = await globalBrowser.newPage();
@@ -894,6 +897,11 @@ function setupApiServer() {
   });
   app.post('/clear-image-cache', (req, res) => {
     handleClearImageCache(req, res).catch(error => {
+      res.status(500).json({ success: false, error: String(error) });
+    });
+  });
+  app.post('/geocode-city', (req, res) => {
+    handleGeocodeCity(req, res).catch((error: any) => {
       res.status(500).json({ success: false, error: String(error) });
     });
   });
@@ -1887,7 +1895,7 @@ async function openFacebookMarketplace() {
         ignoreHTTPSErrors: true,
         javaScriptEnabled: true,
         offline: false,
-        permissions: ['notifications']
+        permissions: ['notifications', 'geolocation']
       });
       
       const page = await globalBrowser.newPage();
@@ -1943,7 +1951,7 @@ async function handleSetLocation(req: Request, res: Response): Promise<Response>
       error: 'Браузер не инициализирован'
     });
   }
-  const { city, radius } = req.body;
+  const { city, radius, latitude, longitude } = req.body;
   console.log(`[set-location] Получен запрос на установку местоположения: город "${city}", радиус ${radius ? radius + ' miles' : 'не указан'}`);
   if (!city || typeof city !== 'string') {
     return res.status(400).json({
@@ -1953,6 +1961,16 @@ async function handleSetLocation(req: Request, res: Response): Promise<Response>
   }
   try {
     console.log('[set-location] start', { city, radius });
+    if (latitude !== undefined && longitude !== undefined && !isNaN(Number(latitude)) && !isNaN(Number(longitude))) {
+      try {
+        const ctx = globalPage.context();
+        await ctx.grantPermissions(['geolocation']);
+        await ctx.setGeolocation({ latitude: Number(latitude), longitude: Number(longitude), accuracy: 50 });
+        console.log(`[set-location] Geolocation applied lat=${latitude} lon=${longitude}`);
+      } catch (geoErr) {
+        console.error('[set-location] geolocation error', geoErr);
+      }
+    }
     let cityBlock = await globalPage.$('#seo_filters div[role="button"]');
     let cityBlockSelector = '#seo_filters div[role="button"]';
     if (!cityBlock) {
@@ -2469,6 +2487,58 @@ async function handleClearImageCache(req: Request, res: Response): Promise<Respo
   } catch (error) {
     return res.status(500).json({ success: false, error: String(error) });
   }
+}
+
+async function geocodeCity(query: string): Promise<{ success: boolean; lat?: number; lon?: number; name?: string; error?: string }> {
+  try {
+    if (!query || typeof query !== 'string') {
+      return { success: false, error: 'invalid_query' };
+    }
+
+    const lower = query.toLowerCase();
+    const cached = geoCache.get(lower);
+    if (cached && Date.now() - cached.timestamp < 24 * 60 * 60 * 1000) {
+      return { success: true, lat: cached.lat, lon: cached.lon, name: cached.name };
+    }
+
+    const url = 'https://nominatim.openstreetmap.org/search';
+    const resp = await axios.get(url, {
+      params: { q: query, format: 'json', limit: 1 },
+      headers: { 'User-Agent': 'FreelanceProj/1.0' },
+      timeout: 8000
+    });
+
+    const arr = Array.isArray(resp.data) ? resp.data : [];
+    if (!arr.length) {
+      return { success: false, error: 'not_found' };
+    }
+
+    const loc = arr[0];
+    const lat = parseFloat(loc.lat);
+    const lon = parseFloat(loc.lon);
+    const name = loc.display_name || query;
+    geoCache.set(lower, { lat, lon, name, timestamp: Date.now() });
+    if (geoCache.size > 1000) {
+      const keys = Array.from(geoCache.keys()).slice(0, geoCache.size - 1000);
+      keys.forEach(k => geoCache.delete(k));
+    }
+    return { success: true, lat, lon, name };
+  } catch (err) {
+    console.error('[geocodeCity]', err);
+    return { success: false, error: 'network' };
+  }
+}
+
+async function handleGeocodeCity(req: Request, res: Response): Promise<Response> {
+  const { city } = req.body;
+  if (!city || typeof city !== 'string') {
+    return res.status(400).json({ success: false, error: 'city_required' });
+  }
+  const result = await geocodeCity(city);
+  if (result.success) {
+    return res.json({ success: true, lat: result.lat, lon: result.lon, name: result.name });
+  }
+  return res.json({ success: false, error: result.error || 'unknown' });
 }
 
 openFacebookMarketplace().catch(error => {

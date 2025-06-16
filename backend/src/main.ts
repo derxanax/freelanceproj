@@ -5,7 +5,7 @@ import * as dotenv from 'dotenv'
 import * as path from 'path'
 import Database from 'better-sqlite3'
 import fs from 'fs'
-
+ 
 async function checkApiStatus(apiUrl: string): Promise<boolean> {
   try {
     console.log(`Проверка доступности API по адресу ${apiUrl}/status...`)
@@ -146,6 +146,8 @@ interface FilterState {
   minYear?: number
   maxYear?: number
   maxAgeMinutes?: number
+  lon?: number
+  lat?: number
 }
 
 interface SessionData {
@@ -431,17 +433,33 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
     return
   }
   if (step === 'city') {
-    ctx.session.filters.city = ctx.message.text
-    ctx.session.filters.step = 'radius'
-    const ikb = new InlineKeyboard()
-      .text('2 миль', 'radius:2').text('5 миль', 'radius:5').row()
-      .text('10 миль', 'radius:10').text('20 миль', 'radius:20').row()
-      .text('40 миль', 'radius:40').text('60 миль', 'radius:60').row()
-      .text('80 миль', 'radius:80').text('100 миль', 'radius:100').row()
-      .text('250 миль', 'radius:250').text('500 миль', 'radius:500').row()
-      .text('❌ Отмена', 'cancel')
-    await ctx.reply('Выбери радиус поиска:', { reply_markup: ikb })
-    return
+    const cityInput = ctx.message.text.trim();
+    try {
+      const geoRes = await axios.post(`${API_URL}/geocode-city`, { city: cityInput });
+      if (geoRes.data && geoRes.data.success) {
+        ctx.session.filters.city = cityInput;
+        ctx.session.filters.lat = geoRes.data.lat;
+        ctx.session.filters.lon = geoRes.data.lon;
+        ctx.session.filters.step = 'radius';
+
+        const ikb = new InlineKeyboard()
+          .text('2 миль', 'radius:2').text('5 миль', 'radius:5').row()
+          .text('10 миль', 'radius:10').text('20 миль', 'radius:20').row()
+          .text('40 миль', 'radius:40').text('60 миль', 'radius:60').row()
+          .text('80 миль', 'radius:80').text('100 миль', 'radius:100').row()
+          .text('250 миль', 'radius:250').text('500 миль', 'radius:500').row()
+          .text('❌ Отмена', 'cancel');
+        await ctx.reply('Выбери радиус поиска:', { reply_markup: ikb });
+      } else {
+        await ctx.reply('❌ Город не найден. Попробуйте ввести снова или проверьте доступность города на https://nominatim.openstreetmap.org/ui/search.html');
+        ctx.session.filters.step = 'city';
+      }
+    } catch (e) {
+      console.error('[city step] geocode error', e);
+      await ctx.reply('❌ Город не найден. Попробуйте ввести снова или проверьте доступность города на https://nominatim.openstreetmap.org/ui/search.html');
+      ctx.session.filters.step = 'city';
+    }
+    return;
   }
   if (step === 'minPrice') {
     const min = Number(ctx.message.text)
@@ -502,7 +520,7 @@ bot.callbackQuery(/^age:(\d+)/, async (ctx: MyContext) => {
     ctx.session.filters.step = null
   await ctx.editMessageText(`Максимальный возраст: ${ctx.session.filters.maxAgeMinutes} мин.`)
     try {
-      await axios.post(`${API_URL}/set-location`, { city: ctx.session.filters.city, radius: ctx.session.filters.radius })
+      await axios.post(`${API_URL}/set-location`, { city: ctx.session.filters.city, radius: ctx.session.filters.radius, latitude: ctx.session.filters.lat, longitude: ctx.session.filters.lon })
       await axios.post(`${API_URL}/set-price-filter`, { minPrice: ctx.session.filters.minPrice, maxPrice: ctx.session.filters.maxPrice })
       if ((ctx.session.filters.minYear !== undefined && ctx.session.filters.minYear > 0) || 
           (ctx.session.filters.maxYear !== undefined && ctx.session.filters.maxYear > 0)) {
@@ -543,7 +561,7 @@ bot.hears('🔎 Запустить мониторинг', async (ctx: MyContext)
   try {
     await axios.post(`${API_URL}/navigate-to-marketplace`, {});
     await axios.post(`${API_URL}/search`, { query: f.query });
-    await axios.post(`${API_URL}/set-location`, { city: f.city, radius: f.radius });
+    await axios.post(`${API_URL}/set-location`, { city: f.city, radius: f.radius, latitude: f.lat, longitude: f.lon });
     await axios.post(`${API_URL}/set-price-filter`, { minPrice: f.minPrice, maxPrice: f.maxPrice });
     
     if ((f.minYear !== undefined && f.minYear > 0) || (f.maxYear !== undefined && f.maxYear > 0)) {
