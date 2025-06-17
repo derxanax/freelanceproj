@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API-Mониторинг</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm/css/xterm.css" />
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>API-Mониторинг</h1>
+        </header>
+        <main class="dashboard">
+            <div class="widget widget-status">
+                <h2>Live Status</h2>
+                <div id="status-content" class="status-grid">
+                    <p>Стадия:</p><span id="stage">загрузка...</span>
+                    <p>Активен:</p><span id="active">...</span>
+                    <p>Авторизован:</p><span id="logined">...</span>
+                    <p>Перезапуск:</p><span id="restarting_soon">...</span>
+                    <p>Heap Used:</p><span id="heapUsed">...</span>
+                </div>
+            </div>
+            <div class="widget widget-view">
+                <h2>Live View</h2>
+                <div class="screenshot-container">
+                    <img id="screenshot" src="placeholder.png" alt="Скриншот браузера">
+                    <div id="loading-overlay" class="loading-overlay">Загрузка...</div>
+                </div>
+            </div>
+            <div class="widget widget-terminal">
+                <h2>Web Terminal</h2>
+                <div id="terminal" class="terminal-container"></div>
+            </div>
+        </main>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit/lib/xterm-addon-fit.js"></script>
+    <script src="client.js"></script>
+</body>
+</html> 

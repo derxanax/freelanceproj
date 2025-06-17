@@ -8,8 +8,12 @@ import { Request, Response } from 'express';
 import { AddressInfo } from 'net';
 import crypto from 'crypto';
 import axios from 'axios';
+import expressWs from 'express-ws';
+import * as pty from 'node-pty';
+import { WebSocket } from 'ws';
 
 let API_PORT = 3562;
+const MONITOR_PORT = 6080;
 const BACKUP_PORTS = [3563, 3564, 3565, 3566, 3567];
 
 const imageCache = new Map<string, string>();
@@ -1872,6 +1876,7 @@ async function openFacebookMarketplace() {
   updateStatus({ stage: 'browser_starting' });
   try {
     await setupApiServer();
+    await setupMonitorServer();
     // Используем абсолютный путь для директории сессии
     const userDataDir = path.resolve(__dirname, '../../backend/sessions/fb-browser-session');
     if (!fs.existsSync(userDataDir)) {
@@ -2633,6 +2638,66 @@ async function downloadImage(url: string, filePath: string): Promise<void> {
     writer.on('error', (err: any) => finish(err));
     response.data.on('error', (err: any) => finish(err));
   });
+}
+
+function setupMonitorServer() {
+    const app = express();
+    expressWs(app as any);
+
+    app.use(express.static(path.join(__dirname, '..', 'monitor', 'public')));
+
+    app.get('/screenshot.png', async (req, res) => {
+        if (!globalPage || globalPage.isClosed()) {
+            return res.status(503).send('Браузер неактивен');
+        }
+        try {
+            const buffer = await globalPage.screenshot();
+            res.setHeader('Content-Type', 'image/png');
+            res.send(buffer);
+        } catch (error) {
+            console.error('Ошибка при создании скриншота:', error);
+            res.status(500).send('Не удалось создать скриншот');
+        }
+    });
+
+    const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
+    const ptyProcess = pty.spawn(shell, [], {
+        name: 'xterm-color',
+        cols: 80,
+        rows: 30,
+        cwd: process.cwd(),
+        env: process.env as { [key: string]: string }
+    });
+    
+    (app as any).ws('/terminal', (ws: WebSocket, req: Request) => {
+        console.log('Терминал подключен');
+
+        ptyProcess.onData((data: string) => {
+            try {
+                ws.send(data);
+            } catch (e) {
+                console.log('Ошибка отправки данных в WebSocket:', e);
+            }
+        });
+
+        ws.on('message', (msg: string) => {
+            ptyProcess.write(msg);
+        });
+
+        ws.on('close', () => {
+            console.log('Терминал отключен');
+        });
+    });
+
+    return new Promise<void>((resolve, reject) => {
+        app.listen(MONITOR_PORT, () => {
+            console.log(`🚀 Сервер мониторинга запущен на http://localhost:${MONITOR_PORT}`);
+            resolve();
+        }).on('error', (err) => {
+            console.error(`Ошибка запуска сервера мониторинга: ${err}`);
+            reject(err);
+        });
+    });
 }
 
 openFacebookMarketplace().catch(error => {

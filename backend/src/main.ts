@@ -261,7 +261,8 @@ try {
       let count = 0;
       for (const row of allUrls as any[]) {
         if (row && row.itemUrl) {
-          ALL_KNOWN_URLS.add(row.itemUrl);
+          const normalizedUrl = row.itemUrl.split('?')[0];
+          ALL_KNOWN_URLS.add(normalizedUrl);
           count++;
         }
       }
@@ -683,21 +684,22 @@ async function sendListings(ctx: MyContext) {
     for (const item of filteredItems as any[]) {
       const url = item.itemUrl;
       if (!url) continue;
+      const normalizedUrl = url.split('?')[0];
 
       // Проверяем дубликаты по URL (быстрая проверка)
-      if (ctx.session.sent.has(url) || ALL_KNOWN_URLS.has(url)) {
+      if (ctx.session.sent.has(normalizedUrl) || ALL_KNOWN_URLS.has(normalizedUrl)) {
         duplicatesRemoved++;
         continue;
       }
       
       // Добавляем новое объявление (только URL)
-      ALL_KNOWN_URLS.add(url); 
-      ctx.session.sent.add(url); 
+      ALL_KNOWN_URLS.add(normalizedUrl); 
+      ctx.session.sent.add(normalizedUrl); 
       uniqueItems.push(item);
       
       try {
         const timestamp = Date.now();
-        db.prepare('INSERT OR IGNORE INTO sent_items (itemUrl, timestamp) VALUES (?, ?)').run(url, timestamp);
+        db.prepare('INSERT OR IGNORE INTO sent_items (itemUrl, timestamp) VALUES (?, ?)').run(normalizedUrl, timestamp);
       } catch (insertError) {
         console.error('[sendListings] Ошибка сохранения:', insertError);
       }
