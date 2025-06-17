@@ -628,11 +628,21 @@ function isFakeListingByPrice(item: any): boolean {
 
 async function sendListings(ctx: MyContext) {
   try {
-    const apiAvailable = await checkApiStatus(API_URL);
-    if (!apiAvailable) {
+    let statusRes;
+    try {
+      statusRes = await axios.get(`${API_URL}/status`);
+      if (!statusRes.data || !statusRes.data.stage) {
+        throw new Error('Некорректный ответ API');
+      }
+    } catch (apiError) {
       console.log('[sendListings] API недоступен');
       ctx.session.monitoring = false;
       await ctx.reply('❌ API недоступен. Мониторинг остановлен.', { reply_markup: mainMenu });
+      return;
+    }
+    
+    if (statusRes.data.restarting_soon) {
+      console.log('[sendListings] API готовится к плановому перезапуску, пропускаю цикл мониторинга.');
       return;
     }
 

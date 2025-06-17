@@ -301,6 +301,7 @@ interface AppStatus {
   yearFilterNotFound?: boolean;
   minYear?: number;
   maxYear?: number;
+  restarting_soon?: boolean;
 }
 interface CategoryData {
   name: string;
@@ -341,7 +342,8 @@ let appStatus: AppStatus = {
   stage: 'initializing',
   active: false,
   downloadedImages: 0,
-  yearFilterNotFound: false
+  yearFilterNotFound: false,
+  restarting_soon: false
 };
 let globalPage: Page | null = null;
 let globalBrowser: any = null;
@@ -551,9 +553,6 @@ async function restartBrowser(): Promise<boolean> {
           '--disable-notifications',
           '--disable-popup-blocking'
         ],
-        recordHar: {
-          path: path.join(userDataDir, 'facebook-session.har')
-        },
         acceptDownloads: true,
         bypassCSP: true,
         ignoreHTTPSErrors: true,
@@ -1892,9 +1891,6 @@ async function openFacebookMarketplace() {
           '--disable-notifications',
           '--disable-popup-blocking'
         ],
-        recordHar: {
-          path: path.join(userDataDir, 'facebook-session.har')
-        },
         acceptDownloads: true,
         bypassCSP: true,
         ignoreHTTPSErrors: true,
@@ -1939,6 +1935,8 @@ async function openFacebookMarketplace() {
       console.log('✅ Браузер успешно перезапущен');
       updateStatus({ active: true, stage: 'browser_restarted' });
       
+      schedulePeriodicRestart(45);
+      
       return true;
       } catch (error) {
       console.error('❌ Ошибка при перезапуске браузера:', error);
@@ -1949,6 +1947,29 @@ async function openFacebookMarketplace() {
     return false;
   }
 }
+
+async function schedulePeriodicRestart(intervalMinutes: number) {
+  console.log(`Планировщик перезапуска активирован с интервалом ${intervalMinutes} минут.`);
+  setInterval(async () => {
+    try {
+      console.log('🔄 Начинаю плановый перезапуск браузера для предотвращения утечек памяти...');
+      updateStatus({ restarting_soon: true, stage: 'scheduled_restart_pending' });
+      
+      console.log('Пауза на 15 секунд для уведомления бэкенда...');
+      await new Promise(resolve => setTimeout(resolve, 15000));
+      
+      await restartBrowser();
+      await restoreState();
+      
+      updateStatus({ restarting_soon: false });
+      console.log('✅ Плановый перезапуск успешно завершен.');
+    } catch (error) {
+      console.error('❌ Ошибка во время планового перезапуска:', error);
+      updateStatus({ restarting_soon: false, stage: 'scheduled_restart_failed' });
+    }
+  }, intervalMinutes * 60 * 1000);
+}
+
 async function handleSetLocation(req: Request, res: Response): Promise<Response> {
   if (!globalPage) {
     return res.status(400).json({
