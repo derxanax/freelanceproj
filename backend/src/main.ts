@@ -434,13 +434,19 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
     const cityInput = ctx.message.text.trim();
     try {
       const geoRes = await axios.post(`${API_URL}/geocode-city`, { city: cityInput });
+      console.log('Ответ геокодера:', geoRes.data);
+
       if (geoRes.data && geoRes.data.success) {
+        
+        const displayNameFull = geoRes.data.displayName || '';
+        const displayNameShort = displayNameFull.split(',').slice(0, 5).join(',').trim();
+
         ctx.session.filters.tmpCityData = {
           city: cityInput,
           lat: geoRes.data.lat,
           lon: geoRes.data.lon,
           name: geoRes.data.name,
-          displayName: geoRes.data.displayName,
+          displayName: displayNameFull, // Сохраняем полный для возможного использования
         };
         ctx.session.filters.step = 'city_confirmation';
 
@@ -448,7 +454,7 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
           .text('Да', 'city_confirm:yes')
           .text('Нет', 'city_confirm:no');
 
-        await ctx.reply(`ээ бля я нашел город ${geoRes.data.name} а ттчнее бля ${geoRes.data.displayName} ээ бля я прав ?`, { reply_markup: ikb });
+        await ctx.reply(`ээ бля я нашел город ${geoRes.data.name} а ттчнее бля ${displayNameShort} ээ бля я прав ?`, { reply_markup: ikb });
 
       } else {
         await ctx.reply('❌ Город не найден. Попробуйте ввести снова или проверьте доступность города на https://nominatim.openstreetmap.org/ui/search.html');

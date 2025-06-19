@@ -1,4 +1,5 @@
-
+backend/dist
+*/dist
 backend/node_modules/.package-lock.json
 backend/node_modules/.bin/nodemon
 backend/node_modules/.bin/nodetouch
@@ -10,20 +11,7 @@ backend/node_modules/@grammyjs/storage-file/LICENSE
 backend/node_modules/@grammyjs/storage-file/package.json
 backend/node_modules/@grammyjs/storage-file/README.md
 backend/node_modules/@grammyjs/storage-file/dist/cjs/deps.node.d.ts
-backend/node_modules/@grammyjs/storage-file/dist/На бирже размещен проект "Разработка ботов с GPT на Python"
-
-Нужен человек, который знает следующий стек для разработки чат ботов (без промптинга)
-
--OpenAI API (Assistant API и functions calling в частности)
-
--Telegram Bot API
-
--Goodle APIs
-
-Умение изучать новые api, опыт работы и с другими нейронками, опыт работы с Битрикс24 API очень приветствуется
-
-Если есть примеры - посмотрел бы.
-
+backend/node_modules/@grammyjs/storage-file/dist
 js/deps.node.js
 backend/node_modules/@grammyjs/storage-file/dist/cjs/mod.d.ts
 backend/node_modules/@grammyjs/storage-file/dist/cjs/mod.js
