@@ -632,9 +632,10 @@ bot.hears('🔎 Запустить мониторинг', async (ctx: MyContext)
   console.log(`[Мониторинг] Сброшены счетчики мониторинга (кэш дубликатов сохранен)`);
   
   try {
+    const cityToSet = f.apiCityName || f.city;
     await axios.post(`${API_URL}/navigate-to-marketplace`, {});
     await axios.post(`${API_URL}/search`, { query: f.query });
-    await axios.post(`${API_URL}/set-location`, { city: f.city, radius: f.radius, latitude: f.lat, longitude: f.lon });
+    await axios.post(`${API_URL}/set-location`, { city: cityToSet, radius: f.radius, latitude: f.lat, longitude: f.lon });
     await axios.post(`${API_URL}/set-price-filter`, { minPrice: f.minPrice, maxPrice: f.maxPrice });
     
     if ((f.minYear !== undefined && f.minYear > 0) || (f.maxYear !== undefined && f.maxYear > 0)) {

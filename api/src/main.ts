@@ -1982,517 +1982,92 @@ async function handleSetLocation(req: Request, res: Response): Promise<Response>
     });
   }
   const { city, radius, latitude, longitude } = req.body;
-  console.log(`[set-location] Получен запрос на установку местоположения: город "${city}", радиус ${radius ? radius + ' miles' : 'не указан'}`);
-  if (!city || typeof city !== 'string') {
-    return res.status(400).json({
-      success: false,
-      error: 'Необходимо указать город (city)'
-    });
+  
+  if (latitude === undefined || longitude === undefined) {
+    return res.status(400).json({ success: false, error: 'latitude и longitude обязательны' });
   }
+
   try {
     await handleCheckpoints(globalPage);
-    console.log('[set-location] start', { city, radius });
-    if (latitude === undefined || longitude === undefined || isNaN(Number(latitude)) || isNaN(Number(longitude))) {
-      return res.status(400).json({ success: false, error: 'latitude_longitude_required' });
-    }
+    
+    const newLat = Number(latitude);
+    const newLon = Number(longitude);
 
-    // quick geolocation path executed below
-
-    try {
-      const ctx = globalPage.context();
-      await ctx.grantPermissions(['geolocation']);
-      await ctx.setGeolocation({ latitude: Number(latitude), longitude: Number(longitude), accuracy: 50 });
-      console.log(`[set-location] Geolocation applied lat=${latitude} lon=${longitude}`);
-
-      // attempt to click compass with multiple strategies
-      let compassClicked = false;
-      try {
-        const compassCss = 'div[aria-label^="Выбор геолокации"][role="button"]';
-        const compass = await globalPage.$(compassCss);
-        if (compass) {
-          await safeClick(globalPage, compass);
-          compassClicked = true;
-        }
-      } catch {}
-      if (!compassClicked) {
-        console.log('[set-location] Compass not found directly, opening location menu…');
-        try {
-          const menuBtn = await findElement(globalPage, [
-            '#seo_filters div[role="button"]',
-            'div[aria-label*="геолокации"][role="button"]',
-            '.x1i10hfl.xjbqb8w[role="button"]'
-          ], 'кнопка меню местоположения');
-          if (menuBtn) {
-            await safeClick(globalPage, menuBtn);
-            await globalPage.waitForTimeout(800);
-            const compass2 = await findElement(globalPage, [
-              'i.xep6ejk',
-              'div[role="button"] i[data-visualcompletion="css-img"]'
-            ], 'кнопка компаса');
-            if (compass2) {
-              await safeClick(globalPage, compass2);
-              compassClicked = true;
-            }
-          }
-        } catch (fallbackErr) {
-          console.error('[set-location] compass fallback error', fallbackErr);
-        }
-      }
-      console.log(`[set-location] compassClicked_final=${compassClicked}`);
-
-      // сохраняем в state
-      currentAppState.location = city;
-      currentAppState.radius = radius;
-
-      console.log(`[set-location] params received: city=${city}, radius=${radius}, lat=${latitude}, lon=${longitude}`);
-
-      return res.json({ success: true, message: 'Геолокация установлена', status: 'completed' });
-    } catch (geoErr) {
-      console.error('[set-location] geolocation flow error', geoErr);
-      // fallthrough to manual flow
-    }
-
-    let cityBlock = await globalPage.$('#seo_filters div[role="button"]');
-    let cityBlockSelector = '#seo_filters div[role="button"]';
-    if (!cityBlock) {
-      cityBlock = await globalPage.$('div.x1i10hfl.x1qjc9v5.xjbqb8w.xjqpnuy[role="button"]');
-      cityBlockSelector = 'div.x1i10hfl.x1qjc9v5.xjbqb8w.xjqpnuy[role="button"]';
+    if (isNaN(newLat) || isNaN(newLon)) {
+      return res.status(400).json({ success: false, error: 'Неверный формат latitude или longitude' });
     }
     
-    // Альтернативный селектор из примера Playwright
-    if (!cityBlock) {
-      cityBlock = await globalPage.$('.x1iyjqo2 > .x13faqbe');
-      cityBlockSelector = '.x1iyjqo2 > .x13faqbe';
+    const context = globalPage.context();
+
+    console.log(`📍 Шаг 1: Устанавливаю геолокацию браузера: Широта=${newLat}, Долгота=${newLon}`);
+    await context.setGeolocation({ latitude: newLat, longitude: newLon });
+
+    console.log('📍 Шаг 2: Открываю меню смены локации на Facebook...');
+    const locationClicked = await tryClick(globalPage, 
+        ['#seo_filters > .x1i10hfl > .x78zum5', 'div[aria-label*="геолокации"]'],
+        'кнопка меню локации',
+        10000
+    );
+    if (!locationClicked) {
+        return res.status(500).json({ success: false, error: "Не удалось открыть меню смены локации." });
+    }
+    await globalPage.waitForTimeout(1500);
+
+    console.log('📍 Шаг 3: Нажимаю на "компас", чтобы применить новые координаты...');
+    let compassClicked = await tryClick(globalPage, ['.x14hiurz'], '"компас" (первый селектор)');
+    if (compassClicked) {
+        await globalPage.waitForTimeout(500);
+        compassClicked = await tryClick(globalPage, ['.x193iq5w > .xep6ejk'], '"компас" (второй селектор)');
+    }
+    if (!compassClicked) {
+        console.log('  ...Новые селекторы компаса не сработали, пробую старый (по aria-label)...');
+        compassClicked = await tryClick(globalPage, ['div[aria-label="Использовать текущее местоположение"][role="button"]'], '"компас" (запасной вариант)');
     }
 
-    if (cityBlock) {
-      console.log(`[set-location] cityBlock найден по селектору: ${cityBlockSelector}, кликаю`);
-      try {
-        await humanClick(globalPage, cityBlock, {timeout: 3000});
-        await globalPage.waitForTimeout(getRandomDelay(800, 1500));
-        console.log('[set-location] человеческий click сработал');
-      } catch (e) {
-        console.log('[set-location] обычный click НЕ сработал, пробую через evaluate');
-        try {
-          await cityBlock.evaluate((el: HTMLElement) => el.click());
-          await globalPage.waitForTimeout(1000);
-          console.log('[set-location] js click через evaluate сработал');
-        } catch (e2) {
-          console.log('[set-location] js click НЕ сработал, пробую дочерний div/span');
-          const child = await cityBlock.$('div,span');
-          if (child) {
-            try {
-              await child.click({timeout: 3000});
-              await globalPage.waitForTimeout(1000);
-              console.log('[set-location] click по дочернему div/span сработал');
-            } catch (e3) {
-              console.log('[set-location] click по дочернему div/span НЕ сработал, пробую boundingBox');
-              const box = await cityBlock.boundingBox();
-              if (box) {
-                await globalPage.mouse.click(box.x + box.width/2, box.y + box.height/2);
-                await globalPage.waitForTimeout(1000);
-                console.log('[set-location] click по координатам boundingBox сработал');
-              } else {
-                console.log('[set-location] boundingBox не найден, все способы клика не сработали');
-              }
-            }
-          } else {
-            console.log('[set-location] дочерний div/span не найден, все способы клика не сработали');
-          }
-        }
-      }
-      console.log('[set-location] жду появления поля ввода местоположения...');
-      const locationInput = await globalPage.waitForSelector(
-        'input[aria-label="Почтовый индекс или город"], input[placeholder*="Почтовый индекс"], input[type="text"][aria-autocomplete="list"], #_r_1s_', 
-        { timeout: 5000 }
-      ).catch(() => null);
-      if (!locationInput) {
-        console.log('[set-location] поле ввода местоположения не найдено по селекторам, пробую js-поиск...');
-        const jsLocationInput = await globalPage.evaluateHandle(() => {
-          const inputs = Array.from(document.querySelectorAll('input[type="text"]'));
-          const exactInput = inputs.find(input => 
-            input.getAttribute('aria-label') === 'Почтовый индекс или город'
-          );
-          if (exactInput) return exactInput;
-          const partialInput = inputs.find(input => {
-            const label = input.getAttribute('aria-label') || '';
-            return label.toLowerCase().includes('город') || 
-                   label.toLowerCase().includes('индекс') || 
-                   label.toLowerCase().includes('местоположени');
-          });
-          if (partialInput) return partialInput;
-          return inputs.find(input => input.getAttribute('aria-autocomplete') === 'list') || null;
-        });
-        if (jsLocationInput && jsLocationInput.asElement()) {
-          console.log('[set-location] поле ввода найдено через JS-поиск');
-          const locationInputElement = jsLocationInput.asElement()!;
-          await humanClick(globalPage, locationInputElement, { clickCount: 3 });
-          await globalPage.keyboard.press('Backspace');
-          await humanType(globalPage, locationInputElement, city);
-        } else {
-          console.log('[set-location] поле ввода местоположения не появилось после открытия меню!');
-          return res.status(404).json({
-            success: false,
-            error: 'Поле ввода местоположения не появилось после открытия меню'
-          });
-        }
-      } else {
-        console.log('[set-location] locationInput найден, ввожу город');
-        await humanClick(globalPage, locationInput, { clickCount: 3 });
-        await globalPage.keyboard.press('Backspace');
-        await humanType(globalPage, locationInput, city);
-      }
-      await globalPage.waitForTimeout(1500);
-      const firstAutocomplete = await globalPage.$('ul[role="listbox"] li, div[role="option"]');
-      if (firstAutocomplete) {
-        console.log('[set-location] автокомплит найден, кликаю');
-        await humanClick(globalPage, firstAutocomplete);
-        await globalPage.waitForTimeout(getRandomDelay(600, 1200));
-      } else {
-        console.log('[set-location] автокомплит НЕ найден');
-      }
-      if (radius) {
-        console.log(`[set-location] начинаю установку радиуса: ${radius} miles`);
-        const allCombos = await globalPage.$$('label[role="combobox"]');
-        let radiusCombo = null;
-        for (const combo of allCombos) {
-          const text = await combo.textContent();
-          if (text && text.includes('Радиус')) {
-            radiusCombo = combo;
-            break;
-          }
-        }
-        if (!radiusCombo) {
-          const possibleCombos = await globalPage.$$('[role="button"]');
-          for (const combo of possibleCombos) {
-            const text = await combo.textContent();
-            if (text && (text.includes('миль') || text.includes('рад'))) {
-              radiusCombo = combo;
-              break;
-            }
-          }
-        }
-        if (radiusCombo) {
-          console.log('[set-location] radiusCombo найден, кликаю');
-          try {
-            await radiusCombo.evaluate((el: HTMLElement) => el.click());
-            await globalPage.waitForTimeout(1000);
-            console.log('[set-location] клик по radiusCombo выполнен через JS');
-            const selectRadiusResult = await globalPage.evaluate((targetRadius) => {
-              const listboxes = Array.from(document.querySelectorAll('[role="listbox"]'));
-              if (!listboxes.length) return { success: false, reason: 'Не найден listbox' };
-              const targetText = `${targetRadius} миль`;
-              for (const listbox of listboxes) {
-                const options = Array.from(listbox.querySelectorAll('[role="option"]'));
-                for (const option of options) {
-                  const spans = Array.from(option.querySelectorAll('span'));
-                  for (const span of spans) {
-                    if (span.textContent && span.textContent.trim() === targetText) {
-                      (option as HTMLElement).click();
-                      return { success: true, id: option.id, text: targetText };
-                    }
-                  }
-                }
-              }
-              const allOptions = Array.from(document.querySelectorAll('div[role="option"]'));
-              for (const option of allOptions) {
-                const spans = Array.from(option.querySelectorAll('span'));
-                for (const span of spans) {
-                  if (span.textContent && span.textContent.trim() === targetText) {
-                    try {
-                      (option as HTMLElement).click();
-                      return { success: true, id: option.id, text: targetText, method: 'global-search' };
-                    } catch (e) {
-                      return { success: false, reason: 'Ошибка клика', error: String(e) };
-                    }
-                  }
-                }
-              }
-              const allRadiusOptions = Array.from(document.querySelectorAll('span'))
-                .filter(span => {
-                  const text = span.textContent;
-                  return text && /\d+ миль$/.test(text.trim());
-                })
-                .map(span => {
-                  const text = span.textContent?.trim() || '';
-                  const value = parseInt(text);
-                  return {
-                    element: span,
-                    text,
-                    value: isNaN(value) ? 0 : value,
-                    diff: Math.abs((isNaN(value) ? 0 : value) - parseInt(targetRadius))
-                  };
-                })
-                .sort((a, b) => a.diff - b.diff);
-              if (allRadiusOptions.length > 0) {
-                const closest = allRadiusOptions[0];
-                let parent = closest.element.parentElement;
-                while (parent && parent.getAttribute('role') !== 'option') {
-                  parent = parent.parentElement;
-                }
-                if (parent) {
-                  try {
-                    (parent as HTMLElement).click();
-                    return { 
-                      success: true, 
-                      id: parent.id, 
-                      text: closest.text, 
-                      method: 'closest-match', 
-                      value: closest.value 
-                    };
-                  } catch (e) {
-                    return { success: false, reason: 'Ошибка клика на ближайшем значении', error: String(e) };
-                  }
-                }
-                try {
-                  const parentAny = closest.element.parentElement;
-                  if (parentAny) {
-                    (parentAny as HTMLElement).click();
-                    return { success: true, text: closest.text, method: 'parent-span-click', value: closest.value };
-                  } else {
-                    (closest.element as HTMLElement).click();
-                    return { success: true, text: closest.text, method: 'direct-span-click', value: closest.value };
-                  }
-                } catch (e) {
-                  return { success: false, reason: 'Ошибка прямого клика на тексте', error: String(e) };
-                }
-              }
-              return { success: false, reason: 'Не найден радиус', options: allRadiusOptions.length };
-            }, radius.toString());
-            console.log('[set-location] Результат выбора радиуса через JS:', selectRadiusResult);
-            if (selectRadiusResult.success) {
-              console.log(`[set-location] Радиус успешно выбран: ${selectRadiusResult.text || radius + ' miles'}`);
-              await globalPage.waitForTimeout(1000);
-            } else {
-              console.log(`[set-location] Не удалось выбрать радиус через JS: ${JSON.stringify(selectRadiusResult)}`);
-              console.log('[set-location] ищу выпадающий список с вариантами радиуса');
-              const listbox = await globalPage.waitForSelector('[role="listbox"]', { timeout: 3000 }).catch(() => null);
-              if (listbox) {
-                console.log('[set-location] listbox найден, ищу нужное значение');
-                const radiusOption = await globalPage.waitForSelector(`[role="option"] span:text("${radius} миль")`, { timeout: 3000 }).catch(() => null);
-                if (radiusOption) {
-                  try {
-                    await radiusOption.click({ timeout: 3000 });
-                    console.log(`[set-location] Успешно кликнул на опцию "${radius} miles"`);
-                    await globalPage.waitForTimeout(1000);
-                  } catch (clickError) {
-                    console.log(`[set-location] Ошибка при клике на опцию: ${clickError}`);
-                    const MAX_RETRY = 3;
-                    let retry = 0;
-                    while (retry < MAX_RETRY) {
-                      retry++;
-                      console.log(`[set-location] Попытка ${retry} выбора радиуса через JavaScript`);
-                      try {
-                        const jsResult = await globalPage.evaluate((targetRadius) => {
-                          const radiusStr = `${targetRadius} миль`;
-                          const options = Array.from(document.querySelectorAll('[role="option"]'));
-                          for (const opt of options) {
-                            if (opt.textContent && opt.textContent.includes(radiusStr)) {
-                              (opt as HTMLElement).click();
-                              return { success: true, text: radiusStr };
-                            }
-                          }
-                          return { success: false };
-                        }, radius);
-                        if (jsResult.success) {
-                          console.log(`[set-location] Успешно выбран радиус через JS на попытке ${retry}`);
-                          break;
-                        }
-                      } catch (e) {
-                        console.log(`[set-location] Ошибка в попытке ${retry}: ${e}`);
-                      }
-                      await globalPage.waitForTimeout(500);
-                    }
-                  }
-                } else {
-                  console.log(`[set-location] Опция "${radius} miles" не найдена по тексту`);
-                }
-              }
-            }
-          } catch (clickError) {
-            console.log(`[set-location] ошибка при клике на combobox: ${clickError}`);
-          }
-        } else {
-          console.log('[set-location] radiusCombo НЕ найден');
-        }
-        
-        // Если не удалось выбрать радиус миль, пробуем с километрами
-        console.log('[set-location] Пробуем выбрать радиус в километрах (запасной вариант)');
-        try {
-          // Пробуем найти селектор для показа списка радиусов
-          const radiusSelector = await globalPage.$('.x1a8lsjc:nth-child(1)');
-          if (radiusSelector && globalPage) {
-            await radiusSelector.click().catch(async () => {
-              const box = await radiusSelector.boundingBox();
-              if (box) {
-                await globalPage!.mouse.click(box.x + box.width/2, box.y + box.height/2);
-              } else {
-                await radiusSelector.evaluate((el: HTMLElement) => el.click());
-              }
-            });
-            
-            await globalPage.waitForTimeout(1000);
-            
-            // Определяем какой километровый радиус выбрать
-            let kmRadiusSelector = '';
-            let kmValue = '';
-            
-            // Преобразуем мили в ближайшее значение километров
-            const milesValue = parseInt(radius.toString());
-            if (milesValue <= 1) {
-              kmRadiusSelector = '#_r_20___0 > .html-div';
-              kmValue = '1 км';
-            } else if (milesValue <= 3) {
-              kmRadiusSelector = '#_r_20___1 > .html-div';
-              kmValue = '2 км';
-            } else if (milesValue <= 7) {
-              kmRadiusSelector = '#_r_20___2';
-              kmValue = '5 км';
-            } else if (milesValue <= 15) {
-              kmRadiusSelector = '#_r_20___3 > .html-div';
-              kmValue = '10 км';
-            } else if (milesValue <= 30) {
-              kmRadiusSelector = '#_r_20___4 > .html-div';
-              kmValue = '20 км';
-            } else if (milesValue <= 50) {
-              kmRadiusSelector = 'text=40 км';
-              kmValue = '40 км';
-            } else if (milesValue <= 70) {
-              kmRadiusSelector = '#_r_20___6';
-              kmValue = '60 км';
-            } else if (milesValue <= 90) {
-              kmRadiusSelector = 'text=80 км';
-              kmValue = '80 км';
-            } else if (milesValue <= 175) {
-              kmRadiusSelector = 'text=100 км';
-              kmValue = '100 км';
-            } else if (milesValue <= 350) {
-              kmRadiusSelector = '#_r_20___9 > .html-div';
-              kmValue = '250 км';
-            } else {
-              kmRadiusSelector = '#_r_20___10';
-              kmValue = '500 км';
-            }
-            
-            console.log(`[set-location] Пробую выбрать радиус ${kmValue} с селектором ${kmRadiusSelector}`);
-            
-            // Пробуем сначала по селектору
-            const kmRadiusElement = await globalPage.$(kmRadiusSelector);
-            if (kmRadiusElement) {
-              await kmRadiusElement.click().catch(async () => {
-                // Если не удалось кликнуть напрямую, пробуем через текст
-                if (globalPage) {
-                  const textSelector = await globalPage.locator(`text=${kmValue}`).first();
-                  if (await textSelector.count() > 0) {
-                    await textSelector.click();
-                    console.log(`[set-location] Радиус выбран через текстовый селектор ${kmValue}`);
-                  } else {
-                    // Последняя попытка через JavaScript
-                    await globalPage.evaluate((value) => {
-                      const allElements = document.querySelectorAll('div[role="option"], span');
-                      for (const el of Array.from(allElements)) {
-                        if (el.textContent && el.textContent.trim() === value) {
-                          (el as HTMLElement).click();
-                          return true;
-                        }
-                      }
-                      return false;
-                    }, kmValue);
-                    console.log(`[set-location] Радиус выбран через JavaScript поиск ${kmValue}`);
-                  }
-                }
-              });
-              console.log(`[set-location] Радиус в км успешно выбран: ${kmValue}`);
-              await globalPage.waitForTimeout(1000);
-            } else {
-              console.log(`[set-location] Не найден элемент радиуса в км по селектору ${kmRadiusSelector}`);
-              
-              // Пробуем по тексту
-              if (globalPage) {
-                const textSelector = await globalPage.locator(`text=${kmValue}`).first();
-                if (await textSelector.count() > 0) {
-                  await textSelector.click();
-                  console.log(`[set-location] Радиус выбран через текстовый селектор ${kmValue}`);
-                }
-              }
-            }
-          }
-        } catch (kmError) {
-          console.log(`[set-location] Ошибка при выборе радиуса в км: ${kmError}`);
-        }
-      }
-      
-      // Ищем кнопку "Применить" с использованием нескольких селекторов
-      let applyButton = await globalPage.$('div[role="button"]:has-text("Применить"), button:has-text("Применить")');
-      
-      // Если не нашли по предыдущим селекторам, пробуем селектор из Playwright примера
-      if (!applyButton) {
-        applyButton = await globalPage.$('.xjp7ctv .x1i10hfl > .x1ja2u2z');
-        if (applyButton) {
-          console.log('[set-location] applyButton найден через селектор из Playwright примера');
-        }
-      }
-      
-      if (applyButton) {
-        console.log('[set-location] applyButton найден, кликаю');
-        try {
-          await applyButton.evaluate((el: HTMLElement) => el.click());
-          await globalPage.waitForTimeout(1200);
-          console.log('[set-location] клик на кнопку Применить выполнен через JS');
-        } catch (e) {
-          try {
-            await applyButton.click();
-            await globalPage.waitForTimeout(1200);
-            console.log('[set-location] клик на кнопку Применить выполнен через обычный клик');
-          } catch (clickError) {
-            console.log(`[set-location] ошибка при клике на кнопку Применить: ${clickError}`);
-            
-            // Критическая ошибка - пытаемся автовосстановление
-            const recovered = await handleCriticalError('set-location-apply-button', clickError);
-            if (!recovered) {
-              return res.status(500).json({
-                success: false,
-                error: `Критическая ошибка при установке местоположения: ${clickError}`,
-                status: "browser_restart_failed"
-              });
-            }
-          }
-        }
-      } else {
-        console.log('[set-location] applyButton НЕ найден');
-      }
-      console.log('[set-location] done');
-      
-      // Сохраняем местоположение в состояние для автовосстановления
-      currentAppState.location = city;
-      currentAppState.radius = radius;
-      
-      return res.json({
-        success: true,
-        message: `Местоположение установлено: ${city}${radius ? ', радиус ' + radius + ' miles' : ''}`,
-        status: "completed",
-        applied: {
-          city: city,
-          radius: radius || null
-        }
-      });
-    } else {
-      console.log('[set-location] cityBlock НЕ найден');
-      return res.status(404).json({
-        success: false,
-        error: 'Кнопка открытия меню местоположения не найдена',
-        status: "not_found"
-      });
+    if (!compassClicked) {
+        return res.status(500).json({ success: false, error: "Не удалось нажать на 'компас'." });
     }
+    await globalPage.waitForTimeout(1500);
+    
+    console.log('📍 Шаг 4: Нажимаю "Применить"...');
+    const applied = await tryClick(globalPage, ['div[aria-label="Применить"][role="button"]'], 'кнопка "Применить"');
+    if(!applied) {
+        console.log('  ...Кнопка "Применить" не найдена или не понадобилась.');
+    }
+    await globalPage.waitForTimeout(2000);
+
+    currentAppState.location = city;
+    currentAppState.radius = radius;
+    
+    console.log(`✅ Геолокация успешно установлена на ${city || `(${newLat}, ${newLon})`}`);
+    return res.json({ success: true, message: 'Геолокация успешно установлена.' });
+
   } catch (error) {
-    console.log('[set-location] ERROR', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`❌ Критическая ошибка в handleSetLocation: ${errorMessage}`);
     return res.status(500).json({
       success: false,
-      error: `Не удалось установить местоположение: ${error}`,
-      status: "failed"
+      error: `Не удалось установить местоположение: ${errorMessage}`
     });
   }
 }
+
+async function tryClick(page: Page, selectors: string[], description: string, timeout: number = 5000): Promise<boolean> {
+    console.log(`🖱️ Пытаюсь кликнуть: ${description}`);
+    for (const selector of selectors) {
+        try {
+            const element = await page.waitForSelector(selector, { timeout, state: 'visible' });
+            await element.click({ timeout: 2000 });
+            console.log(`  ✅ Успешный клик по селектору: ${selector}`);
+            return true;
+        } catch (e) {
+            console.log(`  ...Селектор не сработал: ${selector}`);
+        }
+    }
+    console.log(`❌ Не удалось кликнуть: ${description}`);
+    return false;
+}
+
 async function handleSetYearFilter(req: Request, res: Response): Promise<Response> {
   const { minYear, maxYear } = req.body;
   if ((minYear === undefined || minYear === null) && (maxYear === undefined || maxYear === null)) {
@@ -2524,6 +2099,7 @@ async function handleSetYearFilter(req: Request, res: Response): Promise<Respons
     }
   });
 }
+
 async function handleSetAgeFilter(req: Request, res: Response): Promise<Response> {
   const { maxAgeMinutes } = req.body;
   if (maxAgeMinutes === undefined || maxAgeMinutes === null || isNaN(Number(maxAgeMinutes)) || Number(maxAgeMinutes) <= 0) {
