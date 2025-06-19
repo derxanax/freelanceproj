@@ -409,6 +409,8 @@ async function performFullClear(ctx: MyContext) {
   }
 }
 
+const cancelKeyboard = new InlineKeyboard().text('❌ Отмена', 'cancel_setup');
+
 bot.command('clear', async (ctx: MyContext) => {
   const ikb = new InlineKeyboard()
     .text('✅ Да, очистить', 'clear_cache:yes')
@@ -427,7 +429,7 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
     ctx.session.filters.query = ctx.message.text
     ctx.session.filters.step = 'city'
     await axios.post(`${API_URL}/search`, { query: ctx.session.filters.query })
-    await ctx.reply('Введи город поиска:')
+    await ctx.reply('Введи город поиска:', { reply_markup: cancelKeyboard })
     return
   }
   if (step === 'city') {
@@ -452,9 +454,10 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
 
         const ikb = new InlineKeyboard()
           .text('Да', 'city_confirm:yes')
-          .text('Нет', 'city_confirm:no');
+          .text('Нет', 'city_confirm:no').row()
+          .text('❌ Отмена', 'cancel_setup');
 
-        await ctx.reply(`ээ бля я нашел город ${geoRes.data.name} а ттчнее бля ${displayNameShort} ээ бля я прав ?`, { reply_markup: ikb });
+        await ctx.reply(`Найден город: ${geoRes.data.name} (${displayNameShort}). Подтверждаете?`, { reply_markup: ikb });
 
       } else {
         await ctx.reply('❌ Город не найден. Попробуйте ввести снова или проверьте доступность города на https://nominatim.openstreetmap.org/ui/search.html');
@@ -472,7 +475,7 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
     if (isNaN(min)) return ctx.reply('Пожалуйста, введи число!')
     ctx.session.filters.minPrice = min
     ctx.session.filters.step = 'maxPrice'
-    await ctx.reply('Введи максимальную цену (или 0 если фри цена):')
+    await ctx.reply('Введи максимальную цену (или 0 если фри цена):', { reply_markup: cancelKeyboard })
     return
   }
   if (step === 'maxPrice') {
@@ -482,7 +485,7 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
     
     // Для всех категорий спрашиваем про год (не только для машин)
     ctx.session.filters.step = 'minYear'
-    await ctx.reply('Введи минимальный год выпуска (или 0 если нет ограничений):')
+    await ctx.reply('Введи минимальный год выпуска (или 0 если нет ограничений):', { reply_markup: cancelKeyboard })
     return
   }
   if (step === 'minYear') {
@@ -490,7 +493,7 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
     if (isNaN(minYear)) return ctx.reply('Пожалуйста, введи год в числовом формате!')
     ctx.session.filters.minYear = minYear === 0 ? undefined : minYear
     ctx.session.filters.step = 'maxYear'
-    await ctx.reply('Введи максимальный год выпуска (или 0 если нет ограничений):')
+    await ctx.reply('Введи максимальный год выпуска (или 0 если нет ограничений):', { reply_markup: cancelKeyboard })
     return
   }
   if (step === 'maxYear') {
@@ -502,7 +505,7 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
       .text('1 мин', 'age:1').text('1 час', 'age:60').row()
       .text('4 часа', 'age:240').text('12 часов', 'age:720').row()
       .text('день', 'age:1440').text('неделя', 'age:10080').row()
-      .text('❌ Отмена', 'cancel')
+      .text('❌ Отмена', 'cancel_setup')
     await ctx.reply('Выбери максимальный возраст объявления:', { reply_markup: ageKb })
     return
   }
@@ -525,7 +528,7 @@ bot.callbackQuery(/^city_confirm:(yes|no)/, async (ctx: MyContext) => {
     ctx.session.filters.lon = tmpData.lon;
     ctx.session.filters.step = 'radius';
     
-    await ctx.editMessageText('все да пля спасипа');
+    await ctx.editMessageText('✓ Город подтвержден.');
 
     const ikb = new InlineKeyboard()
       .text('2 миль', 'radius:2').text('5 миль', 'radius:5').row()
@@ -533,12 +536,12 @@ bot.callbackQuery(/^city_confirm:(yes|no)/, async (ctx: MyContext) => {
       .text('40 миль', 'radius:40').text('60 миль', 'radius:60').row()
       .text('80 миль', 'radius:80').text('100 миль', 'radius:100').row()
       .text('250 миль', 'radius:250').text('500 миль', 'radius:500').row()
-      .text('❌ Отмена', 'cancel');
+      .text('❌ Отмена', 'cancel_setup');
     await ctx.reply('Выбери радиус поиска:', { reply_markup: ikb });
 
   } else { // 'no'
     ctx.session.filters.step = 'city';
-    await ctx.editMessageText('бляя ладно вводи еще раз');
+    await ctx.editMessageText('Понял. Попробуйте ввести название города еще раз.');
   }
 
   ctx.session.filters.tmpCityData = undefined;
@@ -551,7 +554,7 @@ bot.callbackQuery(/^radius:(\d+)/, async (ctx: MyContext) => {
   ctx.session.filters.radius = Number(ctx.match[1])
   ctx.session.filters.step = 'minPrice'
   await ctx.editMessageText(`Радиус выбран: ${ctx.session.filters.radius} миль`)
-  await ctx.reply('Введи минимальную цену (или 0 если фри цена):')
+  await ctx.reply('Введи минимальную цену (или 0 если фри цена):', { reply_markup: cancelKeyboard })
 })
 
 bot.callbackQuery(/^age:(\d+)/, async (ctx: MyContext) => {
@@ -588,6 +591,18 @@ bot.callbackQuery(/^clear_cache:(yes|no)/, async (ctx: MyContext) => {
   } else { // 'no'
     await ctx.editMessageText('❌ Очистка отменена.');
   }
+  await ctx.answerCallbackQuery();
+});
+
+bot.callbackQuery('cancel_setup', async (ctx: MyContext) => {
+  ctx.session.filters = { step: null };
+  try {
+    await axios.post(`${API_URL}/navigate-to-marketplace`, {});
+  } catch (e) {
+    console.error('[cancel_setup] Failed to reset browser state', e);
+  }
+  await ctx.editMessageText('Настройка отменена.');
+  await ctx.reply('Главное меню:', { reply_markup: mainMenu });
   await ctx.answerCallbackQuery();
 });
 
