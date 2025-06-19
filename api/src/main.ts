@@ -15,7 +15,7 @@ const BACKUP_PORTS = [3563, 3564, 3565, 3566, 3567];
 const imageCache = new Map<string, string>();
 const MAX_IMAGE_CACHE = 5000;
 
-const geoCache = new Map<string, { lat: number; lon: number; name: string; timestamp: number }>();
+const geoCache = new Map<string, { lat: number; lon: number; name: string; displayName: string; timestamp: number }>();
 
 function generateStableFileName(title: string, price: string, location: string): string {
   const contentKey = `${title}_${price}_${location}`;
@@ -594,6 +594,8 @@ async function restartBrowser(): Promise<boolean> {
       await page.waitForTimeout(getRandomDelay(2000, 4000));
       await humanMouseMove(page);
       
+      await handleCheckpoints(page);
+      
       console.log('✅ Браузер успешно перезапущен');
       updateStatus({ active: true, stage: 'browser_restarted' });
       
@@ -1024,6 +1026,7 @@ async function handleSearch(req: Request, res: Response): Promise<Response> {
     });
   }
   try {
+    await handleCheckpoints(globalPage);
     console.log(`Выполняю поиск по запросу: "${query}"`);
     
     // Селекторы, проверенные на работоспособность в последних версиях Facebook Marketplace
@@ -1263,6 +1266,7 @@ async function handleNavigateToMarketplace(req: Request, res: Response): Promise
   }
   
   try {
+    await handleCheckpoints(globalPage);
     console.log('Навигация на базовую страницу Facebook Marketplace...');
     await globalPage.goto('https://www.facebook.com/marketplace', {
       waitUntil: 'domcontentloaded',
@@ -1395,6 +1399,8 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
           continue;
         }
       }
+      
+      await handleCheckpoints(globalPage);
       
       // Проверка ошибки Facebook перед парсингом товаров
       const hasFacebookError = await detectFacebookError();
@@ -1927,6 +1933,8 @@ async function openFacebookMarketplace() {
       
       await page.waitForTimeout(getRandomDelay(2000, 4000));
         await humanMouseMove(page);
+
+      await handleCheckpoints(page);
       
       console.log('✅ Браузер успешно перезапущен');
       updateStatus({ active: true, stage: 'browser_restarted' });
@@ -1982,6 +1990,7 @@ async function handleSetLocation(req: Request, res: Response): Promise<Response>
     });
   }
   try {
+    await handleCheckpoints(globalPage);
     console.log('[set-location] start', { city, radius });
     if (latitude === undefined || longitude === undefined || isNaN(Number(latitude)) || isNaN(Number(longitude))) {
       return res.status(400).json({ success: false, error: 'latitude_longitude_required' });
@@ -2561,7 +2570,7 @@ async function handleClearImageCache(req: Request, res: Response): Promise<Respo
   }
 }
 
-async function geocodeCity(query: string): Promise<{ success: boolean; lat?: number; lon?: number; name?: string; error?: string }> {
+async function geocodeCity(query: string): Promise<{ success: boolean; lat?: number; lon?: number; name?: string; displayName?: string; error?: string }> {
   try {
     if (!query || typeof query !== 'string') {
       return { success: false, error: 'invalid_query' };
@@ -2570,7 +2579,7 @@ async function geocodeCity(query: string): Promise<{ success: boolean; lat?: num
     const lower = query.toLowerCase();
     const cached = geoCache.get(lower);
     if (cached && Date.now() - cached.timestamp < 24 * 60 * 60 * 1000) {
-      return { success: true, lat: cached.lat, lon: cached.lon, name: cached.name };
+      return { success: true, lat: cached.lat, lon: cached.lon, name: cached.name, displayName: cached.displayName };
     }
 
     const url = 'https://nominatim.openstreetmap.org/search';
@@ -2588,13 +2597,14 @@ async function geocodeCity(query: string): Promise<{ success: boolean; lat?: num
     const loc = arr[0];
     const lat = parseFloat(loc.lat);
     const lon = parseFloat(loc.lon);
-    const name = loc.display_name || query;
-    geoCache.set(lower, { lat, lon, name, timestamp: Date.now() });
+    const name = loc.name || query;
+    const displayName = loc.display_name || query;
+    geoCache.set(lower, { lat, lon, name, displayName, timestamp: Date.now() });
     if (geoCache.size > 1000) {
       const keys = Array.from(geoCache.keys()).slice(0, geoCache.size - 1000);
       keys.forEach(k => geoCache.delete(k));
     }
-    return { success: true, lat, lon, name };
+    return { success: true, lat, lon, name, displayName };
   } catch (err) {
     console.error('[geocodeCity]', err);
     return { success: false, error: 'network' };
@@ -2608,7 +2618,7 @@ async function handleGeocodeCity(req: Request, res: Response): Promise<Response>
   }
   const result = await geocodeCity(city);
   if (result.success) {
-    return res.json({ success: true, lat: result.lat, lon: result.lon, name: result.name });
+    return res.json({ success: true, lat: result.lat, lon: result.lon, name: result.name, displayName: result.displayName });
   }
   return res.json({ success: false, error: result.error || 'unknown' });
 }
@@ -2636,3 +2646,74 @@ openFacebookMarketplace().catch(error => {
   updateStatus({ active: false, stage: 'critical_error' });
   process.exit(1);
 });  
+
+async function handleCheckpoints(page: Page): Promise<boolean> {
+  console.log(`[CHECKPOINT] Начинаю проверку на странице: ${page.url()}`);
+  
+  try {
+    const isCheckpointUrl = page.url().includes('/checkpoint/');
+    const hasCheckpointText = await page.locator('*:has-text("автоматизированное поведение"), *:has-text("temporarily restricted")').count() > 0;
+
+    console.log(`[CHECKPOINT] Результаты проверки: URL содержит /checkpoint/ -> ${isCheckpointUrl}, найден специфичный текст -> ${hasCheckpointText}`);
+
+    if (!isCheckpointUrl && !hasCheckpointText) {
+      console.log("[CHECKPOINT] Чекпоинт не обнаружен. Пропускаю.");
+      return true;
+    }
+
+    console.log('ℹ️ Обнаружена страница чекпоинта (по URL или тексту). Проверяю наличие блокирующих элементов...');
+        
+    const declineButtonLocator = page.locator('*:has-text("Отклонить")').last();
+
+    if (!(await declineButtonLocator.count() > 0 && await declineButtonLocator.isVisible())) {
+      console.log('[CHECKPOINT] Элемент с текстом "Отклонить" не найден или не виден.');
+      return true;
+    }
+
+    console.log('🔍 Обнаружен видимый элемент "Отклонить". Начинаю процедуру закрытия...');
+    
+    await humanMouseMove(page); // "Осматриваемся"
+    
+    const maxRetries = 3;
+    for (let i = 0; i < maxRetries; i++) {
+      console.log(`[Попытка ${i + 1}/${maxRetries}] Навожу курсор на кнопку...`);
+      try {
+        await declineButtonLocator.hover({ timeout: 3000 });
+        await page.waitForTimeout(getRandomDelay(300, 700));
+
+        console.log(`[Попытка ${i + 1}/${maxRetries}] Пытаюсь кликнуть по-человечески...`);
+        await humanClick(page, declineButtonLocator);
+        
+        console.log(`[Попытка ${i + 1}/${maxRetries}] Клик выполнен. Ожидание 3-4 сек и проверка...`);
+        await page.waitForTimeout(getRandomDelay(3000, 4000));
+
+        if (!(await declineButtonLocator.isVisible())) {
+          console.log('✅ УСПЕХ! Элемент "Отклонить" больше не виден.');
+          return true;
+        } else {
+           console.warn(`[Попытка ${i + 1}/${maxRetries}] ⚠️ НЕУДАЧА: Элемент "Отклонить" все еще виден после клика.`);
+           try {
+             const screenshotPath = path.resolve(__dirname, '../src/img/checkpoint_failure.png');
+             await page.screenshot({ path: screenshotPath, fullPage: true });
+             console.log(`📸 Скриншот сохранен в: ${screenshotPath}`);
+           } catch (screenshotError) {
+             console.error('🔴 Не удалось сделать скриншот:', screenshotError);
+           }
+        }
+      } catch (e) {
+        console.error(`[Попытка ${i + 1}/${maxRetries}] 🔴 КРИТИЧЕСКАЯ ОШИБКА во время клика:`, e);
+      }
+      
+      if (i < maxRetries - 1) {
+        await page.waitForTimeout(getRandomDelay(1000, 2000));
+      }
+    }
+    
+    console.error('🔴 ФИНАЛЬНЫЙ ПРОВАЛ: Не удалось закрыть чекпоинт "Отклонить" после нескольких попыток.');
+    return false;
+
+  } catch (error) {
+    console.log('ℹ️ КРИТИЧЕСКАЯ ОШИБКА во время проверки на всплывающие окна (handleCheckpoints):', error);
+    return false;
+  }
+}

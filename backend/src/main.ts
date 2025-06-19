@@ -137,7 +137,7 @@ const API_URL = `http://localhost:${API_PORT}`;
 console.log(`Используем API URL: ${API_URL}`);
 
 interface FilterState {
-  step: null | 'query' | 'city' | 'radius' | 'minPrice' | 'maxPrice' | 'minYear' | 'maxYear' | 'ageLimit'
+  step: null | 'query' | 'city' | 'city_confirmation' | 'radius' | 'minPrice' | 'maxPrice' | 'minYear' | 'maxYear' | 'ageLimit'
   query?: string
   city?: string
   radius?: number
@@ -148,6 +148,13 @@ interface FilterState {
   maxAgeMinutes?: number
   lon?: number
   lat?: number
+  tmpCityData?: {
+    city: string;
+    lat: number;
+    lon: number;
+    name: string;
+    displayName: string;
+  }
 }
 
 interface SessionData {
@@ -155,7 +162,6 @@ interface SessionData {
   monitoring: boolean
   sent: Set<string>
   lastLogMessageId?: number
-  awaitingClearConfirmation?: boolean
   consecutiveEmptyScans?: number
   lastStatusMessageId?: number
 }
@@ -181,7 +187,6 @@ bot.use(async (ctx: MyContext, next: () => Promise<void>) => {
   if (typeof ctx.session.monitoring !== 'boolean') ctx.session.monitoring = false
   if (!ctx.session.sent || !(ctx.session.sent instanceof Set)) ctx.session.sent = new Set()
   if (typeof ctx.session.lastLogMessageId !== 'number') ctx.session.lastLogMessageId = undefined
-  if (typeof ctx.session.awaitingClearConfirmation !== 'boolean') ctx.session.awaitingClearConfirmation = false
   if (typeof ctx.session.consecutiveEmptyScans !== 'number') ctx.session.consecutiveEmptyScans = 0
   if (typeof ctx.session.filters.maxAgeMinutes !== 'number') ctx.session.filters.maxAgeMinutes = undefined
   if (typeof ctx.session.lastStatusMessageId !== 'number') ctx.session.lastStatusMessageId = undefined
@@ -405,8 +410,10 @@ async function performFullClear(ctx: MyContext) {
 }
 
 bot.command('clear', async (ctx: MyContext) => {
-  ctx.session.awaitingClearConfirmation = true;
-  await ctx.reply('🔐 Команда полной очистки кэша и фильтров дубликатов.\n\nДля подтверждения введите: yes\nДля отмены введите что угодно другое.');
+  const ikb = new InlineKeyboard()
+    .text('✅ Да, очистить', 'clear_cache:yes')
+    .text('❌ Нет, отмена', 'clear_cache:no');
+  await ctx.reply('🔐 Вы уверены, что хотите полностью очистить кэш и базу данных отправленных объявлений? Это действие необратимо.', { reply_markup: ikb });
 })
 
 bot.hears('🛠 Настроить фильтры', startFilterWizard)
@@ -414,16 +421,6 @@ bot.hears('🔄 Пере-настройка', startFilterWizard)
 
 bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
   if (!ctx.message?.text) return next();
-  
-  if (ctx.session.awaitingClearConfirmation) {
-    ctx.session.awaitingClearConfirmation = false;
-    if (ctx.message.text.toLowerCase().trim() === 'yes') {
-      await performFullClear(ctx);
-    } else {
-      await ctx.reply('✓', { reply_markup: mainMenu });
-    }
-    return;
-  }
   
   const { step } = ctx.session.filters
   if (step === 'query') {
@@ -438,19 +435,21 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
     try {
       const geoRes = await axios.post(`${API_URL}/geocode-city`, { city: cityInput });
       if (geoRes.data && geoRes.data.success) {
-        ctx.session.filters.city = cityInput;
-        ctx.session.filters.lat = geoRes.data.lat;
-        ctx.session.filters.lon = geoRes.data.lon;
-        ctx.session.filters.step = 'radius';
+        ctx.session.filters.tmpCityData = {
+          city: cityInput,
+          lat: geoRes.data.lat,
+          lon: geoRes.data.lon,
+          name: geoRes.data.name,
+          displayName: geoRes.data.displayName,
+        };
+        ctx.session.filters.step = 'city_confirmation';
 
-    const ikb = new InlineKeyboard()
-      .text('2 миль', 'radius:2').text('5 миль', 'radius:5').row()
-      .text('10 миль', 'radius:10').text('20 миль', 'radius:20').row()
-      .text('40 миль', 'radius:40').text('60 миль', 'radius:60').row()
-      .text('80 миль', 'radius:80').text('100 миль', 'radius:100').row()
-      .text('250 миль', 'radius:250').text('500 миль', 'radius:500').row()
-          .text('❌ Отмена', 'cancel');
-        await ctx.reply('Выбери радиус поиска:', { reply_markup: ikb });
+        const ikb = new InlineKeyboard()
+          .text('Да', 'city_confirm:yes')
+          .text('Нет', 'city_confirm:no');
+
+        await ctx.reply(`ээ бля я нашел город ${geoRes.data.name} а ттчнее бля ${geoRes.data.displayName} ээ бля я прав ?`, { reply_markup: ikb });
+
       } else {
         await ctx.reply('❌ Город не найден. Попробуйте ввести снова или проверьте доступность города на https://nominatim.openstreetmap.org/ui/search.html');
         ctx.session.filters.step = 'city';
@@ -504,6 +503,42 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
   await next()
 })
 
+bot.callbackQuery(/^city_confirm:(yes|no)/, async (ctx: MyContext) => {
+  if (ctx.session.filters.step !== 'city_confirmation' || !ctx.session.filters.tmpCityData) {
+    return ctx.answerCallbackQuery();
+  }
+  
+  if (!ctx.match) return ctx.answerCallbackQuery();
+
+  const choice = ctx.match[1];
+  const tmpData = ctx.session.filters.tmpCityData;
+
+  if (choice === 'yes') {
+    ctx.session.filters.city = tmpData.city;
+    ctx.session.filters.lat = tmpData.lat;
+    ctx.session.filters.lon = tmpData.lon;
+    ctx.session.filters.step = 'radius';
+    
+    await ctx.editMessageText('все да пля спасипа');
+
+    const ikb = new InlineKeyboard()
+      .text('2 миль', 'radius:2').text('5 миль', 'radius:5').row()
+      .text('10 миль', 'radius:10').text('20 миль', 'radius:20').row()
+      .text('40 миль', 'radius:40').text('60 миль', 'radius:60').row()
+      .text('80 миль', 'radius:80').text('100 миль', 'radius:100').row()
+      .text('250 миль', 'radius:250').text('500 миль', 'radius:500').row()
+      .text('❌ Отмена', 'cancel');
+    await ctx.reply('Выбери радиус поиска:', { reply_markup: ikb });
+
+  } else { // 'no'
+    ctx.session.filters.step = 'city';
+    await ctx.editMessageText('бляя ладно вводи еще раз');
+  }
+
+  ctx.session.filters.tmpCityData = undefined;
+  await ctx.answerCallbackQuery();
+});
+
 bot.callbackQuery(/^radius:(\d+)/, async (ctx: MyContext) => {
   if (ctx.session.filters.step !== 'radius') return ctx.answerCallbackQuery()
   if (!ctx.match) return ctx.answerCallbackQuery()
@@ -536,6 +571,19 @@ bot.callbackQuery(/^age:(\d+)/, async (ctx: MyContext) => {
     await ctx.reply('❌ ФАТАЛЬНАЯ ОШИБКА: Не удалось применить фильтры.', { reply_markup: mainMenu })
     }
 })
+
+bot.callbackQuery(/^clear_cache:(yes|no)/, async (ctx: MyContext) => {
+  if (!ctx.match) return ctx.answerCallbackQuery();
+  const choice = ctx.match[1];
+
+  if (choice === 'yes') {
+    await performFullClear(ctx);
+    await ctx.editMessageText('✅ Кэш полностью очищен.');
+  } else { // 'no'
+    await ctx.editMessageText('❌ Очистка отменена.');
+  }
+  await ctx.answerCallbackQuery();
+});
 
 const monitoringIntervals = new Map<number, NodeJS.Timeout>();
 
