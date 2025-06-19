@@ -148,6 +148,8 @@ interface FilterState {
   maxAgeMinutes?: number
   lon?: number
   lat?: number
+  apiCityName?: string
+  apiCityDisplayName?: string
   tmpCityData?: {
     city: string;
     lat: number;
@@ -526,6 +528,8 @@ bot.callbackQuery(/^city_confirm:(yes|no)/, async (ctx: MyContext) => {
     ctx.session.filters.city = tmpData.city;
     ctx.session.filters.lat = tmpData.lat;
     ctx.session.filters.lon = tmpData.lon;
+    ctx.session.filters.apiCityName = tmpData.name;
+    ctx.session.filters.apiCityDisplayName = tmpData.displayName;
     ctx.session.filters.step = 'radius';
     
     await ctx.editMessageText('✓ Город подтвержден.');
@@ -1023,7 +1027,12 @@ bot.hears('📋 Мои фильтры', async (ctx: MyContext) => {
   const f = ctx.session.filters
   if (!f.query) return ctx.reply('Фильтры не настроены.', { reply_markup: mainMenu })
   
-  let filterText = `Ключевые слова: ${f.query}\nГород: ${f.city}\nРадиус: ${f.radius} миль\nЦена: ${f.minPrice}–${f.maxPrice}`;
+  let cityInfo = `Город: ${f.city}`;
+  if (f.apiCityName) {
+    cityInfo = `Город: ${f.apiCityName}\nПодробная инфа: ${f.apiCityDisplayName}`;
+  }
+
+  let filterText = `Ключевые слова: ${f.query}\n${cityInfo}\nРадиус: ${f.radius} миль\nЦена: ${f.minPrice}–${f.maxPrice}`;
   
   if ((f.minYear !== undefined && f.minYear > 0) || (f.maxYear !== undefined && f.maxYear > 0)) {
     const minYearStr = f.minYear !== undefined && f.minYear > 0 ? f.minYear.toString() : '-';
