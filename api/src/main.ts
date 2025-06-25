@@ -321,6 +321,7 @@ interface MarketplaceItem {
   itemUrl: string;
   savedImagePath?: string;
   ageMinutes?: number;
+  modelName?: string;
 }
 interface ListingsResult {
   success: boolean;
@@ -1181,6 +1182,25 @@ function extractYearFromTitle(title: string): number | null {
   return null;
 }
 
+function extractModelNameFromTitle(title: string): string {
+  try {
+    // Находим год в заголовке
+    const yearMatch = title.match(/^\s*(\b(19|20)\d{2}\b)\s*/);
+    
+    if (yearMatch && yearMatch[0]) {
+      // Удаляем год и лишние пробелы из начала строки
+      const modelName = title.replace(yearMatch[0], '').trim();
+      return modelName || title; // Возвращаем оригинальный заголовок, если после удаления года ничего не осталось
+    }
+    
+    // Если год не найден в начале, возвращаем оригинальный заголовок
+    return title;
+  } catch (error) {
+    console.log('Ошибка при извлечении названия модели:', error);
+    return title;
+  }
+}
+
 // Парсинг строки "17 ч. назад", "неделю назад" → минуты
 function parseAgeToMinutes(raw: string): number | null {
   try {
@@ -1646,13 +1666,16 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
           }
         } catch {}
 
+        const modelName = extractModelNameFromTitle(title.trim());
+        
         results.push({
           price: price.trim(),
           title: title.trim(),
           location: location.trim(),
           imageUrl,
           itemUrl,
-          ageMinutes: ageMinutes === null ? undefined : ageMinutes
+          ageMinutes: ageMinutes === null ? undefined : ageMinutes,
+          modelName: modelName
         });
       }
       return results;
