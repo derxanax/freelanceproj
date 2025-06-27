@@ -760,6 +760,260 @@ async function handleRestartBrowser(req: Request, res: Response): Promise<Respon
   }
 }
 
+async function applyLast24HoursFilter(): Promise<boolean> {
+  if (!globalPage) return false;
+
+  try {
+    console.log('🕐 Применяю фильтр "Последние 24 часа"...');
+
+    // Подход 1: Приоритетный - через URL-параметры (надежнее)
+    try {
+      console.log('🔥 Применение фильтров через URL...');
+      const currentUrl = globalPage.url();
+      let newUrl = currentUrl;
+
+      // Добавляем параметр сортировки по дате создания
+      if (!newUrl.includes('sortBy=')) {
+        newUrl += (newUrl.includes('?') ? '&' : '?') + 'sortBy=creation_time_descend';
+      } else {
+        newUrl = newUrl.replace(/sortBy=[^&]+/, 'sortBy=creation_time_descend');
+      }
+
+      // Добавляем параметр фильтра времени (24 часа)
+      if (!newUrl.includes('daysSinceListed=')) {
+        newUrl += '&daysSinceListed=1';
+      } else {
+        newUrl = newUrl.replace(/daysSinceListed=[^&]+/, 'daysSinceListed=1');
+      }
+
+      if (newUrl !== currentUrl) {
+        console.log(`🚀 Переход на URL с фильтрами: ${newUrl}`);
+        await globalPage.goto(newUrl, { timeout: 30000 });
+        await globalPage.waitForTimeout(3000);
+
+        // Проверяем, что фильтры действительно применились
+        const urlAfterNavigation = globalPage.url();
+        if (urlAfterNavigation.includes('sortBy=creation_time_descend') && urlAfterNavigation.includes('daysSinceListed=1')) {
+          console.log('✅ УСПЕХ! Фильтры применены через URL - "Последние 24 часа" + сортировка по дате');
+          return true;
+        } else {
+          console.log('⚠️ Фильтры в URL не обнаружены после навигации, переходим к кликам...');
+        }
+      } else {
+        console.log('⚠️ URL не изменился, переходим к кликам...');
+      }
+    } catch (urlError) {
+      console.log(`⚠️ Ошибка при попытке применить фильтры через URL: ${urlError}`);
+    }
+
+    // Подход 2: Резервный - через клики (если URL не сработал)
+    console.log('🔥 Применяю фильтры через последовательность кликов...');
+
+    // Шаг 1: Поиск и клик на кнопку сортировки
+    console.log('🔍 Шаг 1: Клик на "Сортировка:"');
+    const sortButtonSelectors = [
+      'text=Сортировка:',
+      '*:has-text("Сортировка:")',
+      'span:has-text("Сортировка:")',
+      'div[role="button"]:has-text("Сортировка:")'
+    ];
+
+    let sortButtonClicked = false;
+
+    // Попытка через обычные селекторы
+    for (const selector of sortButtonSelectors) {
+      try {
+        console.log(`Попытка клика по селектору: ${selector}`);
+        const element = globalPage.locator(selector).first();
+        if (await element.count() > 0 && await element.isVisible()) {
+          await element.click({ timeout: 5000 });
+          console.log(`✅ text селектор сработал: ${selector}`);
+          sortButtonClicked = true;
+          break;
+        }
+      } catch (e) {
+        console.log(`❌ text селектор не сработал: ${e}`);
+      }
+    }
+
+    // Если обычные селекторы не сработали, пробуем JavaScript
+    if (!sortButtonClicked) {
+      try {
+        console.log('🔧 Пробую найти кнопку сортировки через JavaScript...');
+        const jsResult = await globalPage.evaluate(() => {
+          // Ищем по тексту "Сортировка:"
+          const elements = Array.from(document.querySelectorAll('*'));
+          for (const el of elements) {
+            if (el.textContent && el.textContent.includes('Сортировка:') &&
+              (el.tagName === 'SPAN' || el.tagName === 'DIV') &&
+              el.getAttribute('role') === 'button') {
+              (el as HTMLElement).click();
+              return true;
+            }
+          }
+          return false;
+        });
+
+        if (jsResult) {
+          console.log('✅ JavaScript поиск кнопки сортировки успешен');
+          sortButtonClicked = true;
+        }
+      } catch (jsError) {
+        console.log(`❌ JavaScript поиск не удался: ${jsError}`);
+      }
+    }
+
+    if (!sortButtonClicked) {
+      console.log('⚠️ Не удалось кликнуть на "Сортировка:", но продолжаем работу');
+      return false;
+    }
+
+    await globalPage.waitForTimeout(1500);
+
+    // Шаг 2: Выбор "Дата публикации: сначала новые"
+    console.log('🔍 Шаг 2: Выбор "Дата публикации: сначала новые"...');
+    let datePublicationClicked = false;
+
+    try {
+      const datePublicationElement = await globalPage.locator('span', {
+        hasText: 'Дата публикации: сначала новые'
+      }).first();
+
+      if (await datePublicationElement.count() > 0) {
+        await datePublicationElement.click();
+        datePublicationClicked = true;
+        await globalPage.waitForTimeout(1500);
+      }
+    } catch (error) {
+      console.log(`Не удалось кликнуть на "Дата публикации: сначала новые" через локатор: ${error}`);
+    }
+
+    if (!datePublicationClicked) {
+      try {
+        const jsResult = await globalPage.evaluate(() => {
+          const spans = Array.from(document.querySelectorAll('span[id^="_R_"], span'));
+          for (const span of spans) {
+            if (span.textContent && span.textContent.includes('Дата публикации: сначала')) {
+              (span as HTMLElement).click();
+              return true;
+            }
+          }
+          return false;
+        });
+
+        if (jsResult) {
+          datePublicationClicked = true;
+          await globalPage.waitForTimeout(1500);
+        }
+      } catch (jsError) {
+        console.log(`Ошибка при попытке клика через JavaScript: ${jsError}`);
+      }
+    }
+
+    if (!datePublicationClicked) {
+      console.log('⚠️ Не удалось выбрать "Дата публикации: сначала новые"');
+      return false;
+    }
+
+    // Шаг 3: Клик на фильтр "Дата размещения"
+    console.log('🔍 Шаг 3: Клик на фильтр "Дата размещения"...');
+    let timeFilterClicked = false;
+
+    try {
+      const timeFilterElement = await globalPage.locator('span', {
+        hasText: 'Дата размещения'
+      }).first();
+
+      if (await timeFilterElement.count() > 0) {
+        await timeFilterElement.click();
+        timeFilterClicked = true;
+        await globalPage.waitForTimeout(1000);
+      }
+    } catch (error) {
+      console.log(`Не удалось кликнуть на "Дата размещения" через локатор: ${error}`);
+    }
+
+    if (!timeFilterClicked) {
+      try {
+        const jsResult = await globalPage.evaluate(() => {
+          const elements = Array.from(document.querySelectorAll('span, div'));
+          for (const el of elements) {
+            if (el.textContent && el.textContent.includes('Дата размещения')) {
+              (el as HTMLElement).click();
+              return true;
+            }
+          }
+          return false;
+        });
+
+        if (jsResult) {
+          timeFilterClicked = true;
+          await globalPage.waitForTimeout(1000);
+        }
+      } catch (jsError) {
+        console.log(`Ошибка при попытке клика через JavaScript: ${jsError}`);
+      }
+    }
+
+    if (!timeFilterClicked) {
+      console.log('⚠️ Не удалось кликнуть на фильтр "Дата размещения"');
+      return false;
+    }
+
+    // Шаг 4: Выбор "Последние 24 часа"
+    console.log('🔍 Шаг 4: Выбор "Последние 24 часа"...');
+    let last24HoursClicked = false;
+
+    try {
+      const last24HoursElement = await globalPage.locator('span', {
+        hasText: 'Последние 24 часа'
+      }).first();
+
+      if (await last24HoursElement.count() > 0) {
+        await last24HoursElement.click();
+        last24HoursClicked = true;
+        await globalPage.waitForTimeout(1500);
+      }
+    } catch (error) {
+      console.log(`Не удалось кликнуть на "Последние 24 часа" через локатор: ${error}`);
+    }
+
+    if (!last24HoursClicked) {
+      try {
+        const jsResult = await globalPage.evaluate(() => {
+          const spans = Array.from(document.querySelectorAll('span[id^="_R_"], span'));
+          for (const span of spans) {
+            if (span.textContent && span.textContent.includes('Последние 24 часа')) {
+              (span as HTMLElement).click();
+              return true;
+            }
+          }
+          return false;
+        });
+
+        if (jsResult) {
+          last24HoursClicked = true;
+          await globalPage.waitForTimeout(1500);
+        }
+      } catch (jsError) {
+        console.log(`Ошибка при попытке клика через JavaScript: ${jsError}`);
+      }
+    }
+
+    if (last24HoursClicked) {
+      console.log('✅ Успешно выбрана опция "Последние 24 часа"');
+      return true;
+    } else {
+      console.log('⚠️ Не удалось выбрать опцию "Последние 24 часа"');
+      return false;
+    }
+
+  } catch (error) {
+    console.error('❌ Ошибка при применении фильтра "Последние 24 часа":', error);
+    return false;
+  }
+}
+
 async function restoreState(): Promise<void> {
   try {
     if (!globalPage) return;
@@ -807,6 +1061,22 @@ async function restoreState(): Promise<void> {
         }
       } catch (e) {
         console.log('Ошибка восстановления поиска:', e);
+      }
+    }
+
+    // Восстанавливаем геолокацию и применяем фильтр "Последние 24 часа"
+    if (currentAppState.location && (currentAppState.radius !== undefined)) {
+      console.log(`Восстанавливаю геолокацию: ${currentAppState.location}, радиус: ${currentAppState.radius} миль`);
+      try {
+        // Применяем фильтр "Последние 24 часа" при восстановлении состояния
+        const filterApplied = await applyLast24HoursFilter();
+        if (filterApplied) {
+          console.log('✅ Фильтр "Последние 24 часа" успешно применен при восстановлении состояния');
+        } else {
+          console.log('⚠️ Не удалось применить фильтр "Последние 24 часа" при восстановлении состояния');
+        }
+      } catch (e) {
+        console.log('Ошибка восстановления фильтра "Последние 24 часа":', e);
       }
     }
 
@@ -2137,186 +2407,18 @@ async function handleSetLocation(req: Request, res: Response): Promise<Response>
     }
     await globalPage.waitForTimeout(2000);
 
-    // После успешной установки геолокации
+    // После успешной установки геолокации применяем фильтр "Последние 24 часа"
     console.log('📍 Шаг 5: Применяю фильтр "Последние 24 часа"...');
 
-    // Подход 1: Попытка через URL-параметры
-    try {
-      console.log('Пробую применить фильтры через URL-параметры...');
-      const currentUrl = globalPage.url();
-      let newUrl = currentUrl;
+    const filterApplied = await applyLast24HoursFilter();
+    if (filterApplied) {
+      currentAppState.location = city;
+      currentAppState.radius = radius;
 
-      // Добавляем параметр сортировки
-      if (!newUrl.includes('sortBy=')) {
-        newUrl += (newUrl.includes('?') ? '&' : '?') + 'sortBy=creation_time_descend';
-      } else {
-        newUrl = newUrl.replace(/sortBy=[^&]+/, 'sortBy=creation_time_descend');
-      }
-
-      // Добавляем параметр фильтра времени (24 часа)
-      if (!newUrl.includes('daysSinceListed=')) {
-        newUrl += '&daysSinceListed=1';
-      } else {
-        newUrl = newUrl.replace(/daysSinceListed=[^&]+/, 'daysSinceListed=1');
-      }
-
-      if (newUrl !== currentUrl) {
-        console.log(`Переход на URL с фильтрами: ${newUrl}`);
-        await globalPage.goto(newUrl, { timeout: 30000 });
-        await globalPage.waitForTimeout(3000);
-        console.log('✅ Успешно применены фильтры через URL');
-
-        // Проверяем, что фильтры действительно применились
-        const urlAfterNavigation = globalPage.url();
-        if (urlAfterNavigation.includes('sortBy=creation_time_descend') && urlAfterNavigation.includes('daysSinceListed=1')) {
-          console.log('✅ Подтверждено применение фильтров через URL');
-
-          currentAppState.location = city;
-          currentAppState.radius = radius;
-
-          console.log(`✅ Геолокация успешно установлена на ${city || `(${newLat}, ${newLon})`}`);
-          return res.json({ success: true, message: 'Геолокация и фильтры успешно установлены.' });
-        } else {
-          console.log('⚠️ Фильтры в URL не обнаружены после навигации, пробую через клики...');
-        }
-      } else {
-        console.log('⚠️ URL не изменился, пробую через клики...');
-      }
-    } catch (urlError) {
-      console.log(`⚠️ Ошибка при попытке применить фильтры через URL: ${urlError}`);
-    }
-
-    // Подход 2: Полная последовательность кликов
-    console.log('Применяю фильтры через последовательность кликов...');
-
-    // Шаг 5.1: Клик на кнопку сортировки
-    console.log('Шаг 5.1: Клик на кнопку сортировки...');
-    const sortButtonSelectors = [
-      'div[role="button"].x1i10hfl.x1qjc9v5.xjbqb8w.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x1ypdohk.xdl72j9.x2lah0s.xe8uvvx.xat24cr.x1mh8g0r.x2lwn1j.xeuugli.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x1n2onr6.x16tdsg8.x1hl2dhg.xggy1nq.x1ja2u2z.x1t137rt.x1o1ewxj.x3x9cwd.x1e5q0jg.x13rtm0m.x1q0g3np.x87ps6o.x1lku1pv.x78zum5.x1a2a7pz.xqvfhly.x1emribx.xdj266r',
-      '.x1i10hfl:nth-child(1) .x1rg5ohu > .x1b0d499',
-      'div[aria-label*="сортировки"][role="button"]'
-    ];
-    const sortButtonClicked = await tryClick(globalPage, sortButtonSelectors, 'кнопка сортировки');
-
-    if (sortButtonClicked) {
-      await globalPage.waitForTimeout(1000);
-
-      // Шаг 5.2: Выбор "Дата публикации: сначала новые"
-      console.log('Шаг 5.2: Выбор "Дата публикации: сначала новые"...');
-      let datePublicationClicked = false;
-
-      // Попытка через локатор по тексту
-      try {
-        const datePublicationElement = await globalPage.locator('span', {
-          hasText: 'Дата публикации: сначала новые'
-        }).first();
-
-        if (await datePublicationElement.count() > 0) {
-          console.log('Элемент "Дата публикации: сначала новые" найден через локатор, кликаю...');
-          await datePublicationElement.click();
-          datePublicationClicked = true;
-          await globalPage.waitForTimeout(1500);
-        }
-      } catch (error) {
-        console.log(`Не удалось кликнуть на "Дата публикации: сначала новые" через локатор: ${error}`);
-      }
-
-      // Если не удалось через локатор, пробуем через селектор ID
-      if (!datePublicationClicked) {
-        try {
-          // ID может меняться, но попробуем через JavaScript найти по тексту
-          const jsResult = await globalPage.evaluate(() => {
-            const spans = Array.from(document.querySelectorAll('span[id^="_R_"]'));
-            for (const span of spans) {
-              if (span.textContent && span.textContent.includes('Дата публикации: сначала')) {
-                (span as HTMLElement).click();
-                return true;
-              }
-            }
-            return false;
-          });
-
-          if (jsResult) {
-            console.log('Успешно кликнул на "Дата публикации: сначала новые" через JavaScript');
-            datePublicationClicked = true;
-            await globalPage.waitForTimeout(1500);
-          }
-        } catch (jsError) {
-          console.log(`Ошибка при попытке клика через JavaScript: ${jsError}`);
-        }
-      }
-
-      if (datePublicationClicked) {
-        // Шаг 5.3: Клик на фильтр времени
-        console.log('Шаг 5.3: Клик на фильтр времени...');
-        const timeFilterSelectors = [
-          '.x1i10hfl:nth-child(6) .x1b0d499',
-          'div[aria-label*="времени"][role="button"]',
-          'div[role="button"].x1i10hfl.x1qjc9v5.xjbqb8w.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x1ypdohk.xdl72j9.x2lah0s.xe8uvvx.xat24cr.x1mh8g0r.x2lwn1j.xeuugli.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x1n2onr6.x16tdsg8.x1hl2dhg.xggy1nq.x1ja2u2z.x1t137rt.x1o1ewxj.x3x9cwd.x1e5q0jg.x13rtm0m.x1q0g3np.x87ps6o.x1lku1pv.x78zum5.x1a2a7pz.xqvfhly.x1emribx.xdj266r'
-        ];
-        const timeFilterClicked = await tryClick(globalPage, timeFilterSelectors, 'фильтр времени');
-
-        if (timeFilterClicked) {
-          await globalPage.waitForTimeout(1000);
-
-          // Шаг 5.4: Выбор "Последние 24 часа"
-          console.log('Шаг 5.4: Выбор "Последние 24 часа"...');
-          let last24HoursClicked = false;
-
-          // Попытка через локатор по тексту
-          try {
-            const last24HoursElement = await globalPage.locator('span', {
-              hasText: 'Последние 24 часа'
-            }).first();
-
-            if (await last24HoursElement.count() > 0) {
-              console.log('Элемент "Последние 24 часа" найден через локатор, кликаю...');
-              await last24HoursElement.click();
-              last24HoursClicked = true;
-              await globalPage.waitForTimeout(1500);
-            }
-          } catch (error) {
-            console.log(`Не удалось кликнуть на "Последние 24 часа" через локатор: ${error}`);
-          }
-
-          // Если не удалось через локатор, пробуем через селектор ID
-          if (!last24HoursClicked) {
-            try {
-              // ID может меняться, но попробуем через JavaScript найти по тексту
-              const jsResult = await globalPage.evaluate(() => {
-                const spans = Array.from(document.querySelectorAll('span[id^="_R_"]'));
-                for (const span of spans) {
-                  if (span.textContent && span.textContent.includes('Последние 24 часа')) {
-                    (span as HTMLElement).click();
-                    return true;
-                  }
-                }
-                return false;
-              });
-
-              if (jsResult) {
-                console.log('Успешно кликнул на "Последние 24 часа" через JavaScript');
-                last24HoursClicked = true;
-                await globalPage.waitForTimeout(1500);
-              }
-            } catch (jsError) {
-              console.log(`Ошибка при попытке клика через JavaScript: ${jsError}`);
-            }
-          }
-
-          if (last24HoursClicked) {
-            console.log('✅ Успешно выбрана опция "Последние 24 часа"');
-          } else {
-            console.log('⚠️ Не удалось выбрать опцию "Последние 24 часа", но продолжаем работу');
-          }
-        } else {
-          console.log('⚠️ Не удалось кликнуть на фильтр времени, пропускаем этот шаг');
-        }
-      } else {
-        console.log('⚠️ Не удалось выбрать "Дата публикации: сначала новые", пропускаем следующие шаги');
-      }
+      console.log(`✅ Геолокация успешно установлена на ${city || `(${newLat}, ${newLon})`}`);
+      return res.json({ success: true, message: 'Геолокация и фильтры "Последние 24 часа" успешно установлены.' });
     } else {
-      console.log('⚠️ Не удалось найти кнопку сортировки, пропускаем этот шаг');
+      console.log('⚠️ Не удалось применить фильтр "Последние 24 часа", но геолокация установлена');
     }
 
     currentAppState.location = city;
