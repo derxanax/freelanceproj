@@ -1,13 +1,11 @@
-import { firefox, Page, ElementHandle } from 'playwright';
-import path from 'path';
-import os from 'os';
-import fs from 'fs';
-import express from 'express';
-import cors from 'cors';
-import { Request, Response } from 'express';
-import { AddressInfo } from 'net';
-import crypto from 'crypto';
 import axios from 'axios';
+import cors from 'cors';
+import crypto from 'crypto';
+import express, { Request, Response } from 'express';
+import fs from 'fs';
+import { AddressInfo } from 'net';
+import path from 'path';
+import { ElementHandle, firefox, Page } from 'playwright';
 
 let API_PORT = 3562;
 const BACKUP_PORTS = [3563, 3564, 3565, 3566, 3567];
@@ -27,21 +25,21 @@ function generateStableFileName(title: string, price: string, location: string):
 
 async function findElement(page: Page, selectors: string[], description: string = 'элемент'): Promise<ElementHandle | null> {
   console.log(`🔍 Ищем ${description} среди ${selectors.length} селекторов`);
-  
+
   for (let i = 0; i < selectors.length; i++) {
     const selector = selectors[i];
     try {
       console.log(`Попытка ${i + 1}/${selectors.length}: "${selector}"`);
-      
+
       const element = await page.$(selector);
       if (element) {
         // Проверяем что элемент действительно видим и интерактивен
         const isVisible = await element.isVisible();
         const isConnected = await element.evaluate((el: HTMLElement) => el.isConnected);
-        
+
         if (isVisible && isConnected) {
           console.log(`✅ ${description} найден и готов: селектор "${selector}"`);
-          
+
           // Скроллим к элементу для надежности
           try {
             await element.scrollIntoViewIfNeeded();
@@ -49,7 +47,7 @@ async function findElement(page: Page, selectors: string[], description: string 
           } catch (scrollError) {
             console.log('Не удалось скроллить к элементу, но продолжаем');
           }
-          
+
           return element;
         } else {
           console.log(`⚠️ ${description} найден но не готов: visible=${isVisible}, connected=${isConnected}`);
@@ -61,29 +59,29 @@ async function findElement(page: Page, selectors: string[], description: string 
       continue;
     }
   }
-  
+
   console.log(`🔍 ${description} не найден по стандартным селекторам, пробую JS поиск`);
   return null;
 }
 
 async function waitForElement(page: Page, selectors: string[], timeout: number = 5000): Promise<ElementHandle | null> {
   console.log(`Ищем элемент с таймаутом ${timeout}ms среди ${selectors.length} селекторов`);
-  
+
   for (let i = 0; i < selectors.length; i++) {
     const selector = selectors[i];
     try {
       console.log(`Попытка ${i + 1}/${selectors.length}: селектор "${selector}"`);
-      
-      const element = await page.waitForSelector(selector, { 
+
+      const element = await page.waitForSelector(selector, {
         timeout,
         state: 'visible'
       });
-      
+
       if (element) {
         // Дополнительная проверка что элемент действительно интерактивен
         const isVisible = await element.isVisible();
         const isEnabled = await element.isEnabled();
-        
+
         if (isVisible && isEnabled) {
           console.log(`✅ Элемент найден и готов к взаимодействию: селектор "${selector}"`);
           return element;
@@ -97,23 +95,23 @@ async function waitForElement(page: Page, selectors: string[], timeout: number =
       continue;
     }
   }
-  
+
   console.log('🔍 Не найден ни один элемент из списка селекторов');
   return null;
 }
 
 async function safeClick(page: Page, element: ElementHandle): Promise<boolean> {
   const errors: string[] = [];
-  
+
   try {
     // Скроллим к элементу
     await element.scrollIntoViewIfNeeded();
     await page.waitForTimeout(200);
-    
+
     // Ждем что элемент станет видимым и интерактивным
     await element.waitForElementState('visible', { timeout: 3000 });
     await page.waitForTimeout(100);
-    
+
     // Метод 1: Обычный клик
     await element.click({ timeout: 3000, force: false });
     console.log('Успешный клик методом 1 (обычный клик)');
@@ -121,7 +119,7 @@ async function safeClick(page: Page, element: ElementHandle): Promise<boolean> {
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
     errors.push(`Метод 1 (обычный клик): ${error}`);
-    
+
     try {
       // Метод 2: Клик с force
       await element.click({ timeout: 3000, force: true });
@@ -130,7 +128,7 @@ async function safeClick(page: Page, element: ElementHandle): Promise<boolean> {
     } catch (e2) {
       const error2 = e2 instanceof Error ? e2.message : String(e2);
       errors.push(`Метод 2 (force клик): ${error2}`);
-      
+
       try {
         // Метод 3: JS клик
         await element.evaluate((el: HTMLElement) => el.click());
@@ -139,7 +137,7 @@ async function safeClick(page: Page, element: ElementHandle): Promise<boolean> {
       } catch (e3) {
         const error3 = e3 instanceof Error ? e3.message : String(e3);
         errors.push(`Метод 3 (JS клик): ${error3}`);
-        
+
         try {
           // Метод 4: Клик по координатам
           const box = await element.boundingBox();
@@ -155,7 +153,7 @@ async function safeClick(page: Page, element: ElementHandle): Promise<boolean> {
         } catch (e4) {
           const error4 = e4 instanceof Error ? e4.message : String(e4);
           errors.push(`Метод 4 (координаты): ${error4}`);
-          
+
           try {
             // Метод 5: Dispatch событий
             await element.evaluate((el: HTMLElement) => {
@@ -168,7 +166,7 @@ async function safeClick(page: Page, element: ElementHandle): Promise<boolean> {
           } catch (e5) {
             const error5 = e5 instanceof Error ? e5.message : String(e5);
             errors.push(`Метод 5 (dispatch событий): ${error5}`);
-            
+
             console.log('Не удалось кликнуть по элементу всеми методами');
             const errorMessage = `ОШИБКА КЛИКА: Не удалось выполнить клик всеми доступными методами:\n${errors.join('\n')}`;
             console.error(errorMessage);
@@ -178,7 +176,7 @@ async function safeClick(page: Page, element: ElementHandle): Promise<boolean> {
       }
     }
   }
-  
+
   const errorMessage = `ОШИБКА КЛИКА: Не удалось выполнить клик всеми доступными методами:\n${errors.join('\n')}`;
   console.error(errorMessage);
   throw new Error(errorMessage);
@@ -186,20 +184,20 @@ async function safeClick(page: Page, element: ElementHandle): Promise<boolean> {
 
 async function safeType(page: Page, element: ElementHandle, text: string): Promise<boolean> {
   const errors: string[] = [];
-  
+
   try {
     // Скроллим к элементу и фокусируемся
     await element.scrollIntoViewIfNeeded();
     await page.waitForTimeout(200);
     await element.waitForElementState('visible', { timeout: 3000 });
-    
+
     // Метод 1: Очистка и ввод через element.fill
     await element.click({ clickCount: 3 });
     await page.waitForTimeout(100);
     await element.fill('');
     await page.waitForTimeout(100);
     await element.fill(text);
-    
+
     // Проверяем что текст действительно введен
     const currentValue = await element.evaluate((el: HTMLInputElement) => el.value);
     if (currentValue === text) {
@@ -213,7 +211,7 @@ async function safeType(page: Page, element: ElementHandle, text: string): Promi
     errors.push(`Метод 1 (element.fill): ${error}`);
     console.log('Метод 1 не сработал, пробуем метод 2');
   }
-  
+
   try {
     // Метод 2: Очистка через Ctrl+A + Delete и type
     await element.click();
@@ -222,7 +220,7 @@ async function safeType(page: Page, element: ElementHandle, text: string): Promi
     await page.keyboard.press('Delete');
     await page.waitForTimeout(100);
     await element.type(text);
-    
+
     // Проверяем результат
     const currentValue = await element.evaluate((el: HTMLInputElement) => el.value);
     if (currentValue === text) {
@@ -236,7 +234,7 @@ async function safeType(page: Page, element: ElementHandle, text: string): Promi
     errors.push(`Метод 2 (Ctrl+A + type): ${error2}`);
     console.log('Метод 2 не сработал, пробуем метод 3');
   }
-  
+
   try {
     // Метод 3: Прямой JS ввод с событиями
     await element.evaluate((el: HTMLInputElement, value: string) => {
@@ -247,7 +245,7 @@ async function safeType(page: Page, element: ElementHandle, text: string): Promi
       el.dispatchEvent(new Event('change', { bubbles: true }));
       el.dispatchEvent(new Event('blur', { bubbles: true }));
     }, text);
-    
+
     // Проверяем результат
     const currentValue = await element.evaluate((el: HTMLInputElement) => el.value);
     if (currentValue === text) {
@@ -261,19 +259,19 @@ async function safeType(page: Page, element: ElementHandle, text: string): Promi
     errors.push(`Метод 3 (JS с событиями): ${error3}`);
     console.log('Метод 3 не сработал, пробуем метод 4');
   }
-  
+
   try {
     // Метод 4: Симуляция посимвольного ввода
     await element.click();
     await page.waitForTimeout(100);
     await page.keyboard.press('Control+a');
     await page.keyboard.press('Delete');
-    
+
     for (const char of text) {
       await page.keyboard.type(char);
       await page.waitForTimeout(50);
     }
-    
+
     // Проверяем результат
     const currentValue = await element.evaluate((el: HTMLInputElement) => el.value);
     if (currentValue === text) {
@@ -287,7 +285,7 @@ async function safeType(page: Page, element: ElementHandle, text: string): Promi
     errors.push(`Метод 4 (посимвольный ввод): ${error4}`);
     console.log('Метод 4 не сработал');
   }
-  
+
   const errorMessage = `ОШИБКА ВВОДА: Не удалось ввести текст '${text}' всеми доступными методами:\n${errors.join('\n')}`;
   console.error(errorMessage);
   throw new Error(errorMessage);
@@ -377,18 +375,18 @@ async function humanMouseMove(page: Page, fromX?: number, fromY?: number, toX?: 
   try {
     const viewport = page.viewportSize();
     if (!viewport) return;
-    
+
     const startX = fromX || Math.random() * viewport.width;
     const startY = fromY || Math.random() * viewport.height;
     const endX = toX || Math.random() * viewport.width;
     const endY = toY || Math.random() * viewport.height;
-    
+
     const steps = Math.floor(Math.random() * 10) + 5;
-    
+
     for (let i = 0; i <= steps; i++) {
       const x = startX + (endX - startX) * (i / steps) + (Math.random() - 0.5) * 10;
       const y = startY + (endY - startY) * (i / steps) + (Math.random() - 0.5) * 10;
-      
+
       await page.mouse.move(x, y);
       await page.waitForTimeout(getRandomDelay(10, 30));
     }
@@ -404,17 +402,17 @@ async function humanClick(page: Page, element: any, options: any = {}) {
       await element.click(options);
       return;
     }
-    
+
     const x = box.x + box.width * (0.3 + Math.random() * 0.4);
     const y = box.y + box.height * (0.3 + Math.random() * 0.4);
-    
+
     await humanMouseMove(page, undefined, undefined, x, y);
     await page.waitForTimeout(getRandomDelay(50, 150));
-    
+
     await page.mouse.down();
     await page.waitForTimeout(getRandomDelay(20, 80));
     await page.mouse.up();
-    
+
     await page.waitForTimeout(getRandomDelay(100, 300));
   } catch (error) {
     console.log('Ошибка человеческого клика, использую обычный:', error);
@@ -432,12 +430,12 @@ async function humanType(page: Page, element: any, text: string) {
   try {
     await humanClick(page, element);
     await page.waitForTimeout(getRandomDelay(100, 200));
-    
+
     for (const char of text) {
       await page.keyboard.type(char);
       await page.waitForTimeout(getHumanTypingDelay());
     }
-    
+
     // Проверяем, что текст действительно был введен
     try {
       const currentValue = await element.evaluate((el: HTMLInputElement) => el.value || el.textContent);
@@ -448,13 +446,13 @@ async function humanType(page: Page, element: any, text: string) {
       console.log('Невозможно проверить введенный текст:', checkError);
       // Продолжаем выполнение, так как не все элементы имеют свойство value
     }
-    
+
     await page.waitForTimeout(getRandomDelay(200, 500));
   } catch (error) {
     console.log('Ошибка человеческого ввода, использую обычный:', error);
     try {
       await element.type(text);
-      
+
       // Дополнительная проверка после обычного ввода
       try {
         const currentValue = await element.evaluate((el: HTMLInputElement) => el.value || el.textContent);
@@ -475,7 +473,7 @@ async function humanType(page: Page, element: any, text: string) {
 async function detectDeadBrowser(): Promise<boolean> {
   try {
     if (!globalPage) return true;
-    
+
     await globalPage.evaluate(() => document.title);
     return false;
   } catch (error) {
@@ -487,10 +485,10 @@ async function detectDeadBrowser(): Promise<boolean> {
 async function detectFacebookError(): Promise<boolean> {
   try {
     if (!globalPage) return false;
-    
+
     // Проверка точного селектора ошибки
     const errorElement = await globalPage.$('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x1xmvt09.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.xtoi2st.x3x7a5m.x1603h9y.x1u7k74.x1xlr1w8.xi81zsa.x2b8uid[dir="auto"]');
-    
+
     if (errorElement) {
       const text = await errorElement.textContent();
       if (text && text.includes('Произошла ошибка')) {
@@ -498,14 +496,14 @@ async function detectFacebookError(): Promise<boolean> {
         return true;
       }
     }
-    
+
     // Запасная проверка по тексту
     const errorByText = await globalPage.locator('text=Произошла ошибка').first();
     if (await errorByText.count() > 0) {
       console.log('🚨 Обнаружена ошибка Facebook по тексту');
       return true;
     }
-    
+
     return false;
   } catch (error) {
     console.log('Ошибка при проверке состояния Facebook:', error);
@@ -516,7 +514,7 @@ async function detectFacebookError(): Promise<boolean> {
 async function restartBrowser(): Promise<boolean> {
   try {
     console.log('🔄 Начинаю полный перезапуск браузера...');
-    
+
     if (globalPage) {
       try {
         const browser = globalPage.context().browser();
@@ -528,7 +526,7 @@ async function restartBrowser(): Promise<boolean> {
         console.log('Ошибка при закрытии старого браузера:', e);
       }
     }
-    
+
     if (globalBrowser) {
       try {
         await globalBrowser.close();
@@ -537,13 +535,13 @@ async function restartBrowser(): Promise<boolean> {
       }
       globalBrowser = null;
     }
-    
+
     await cleanupSingletonLock();
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
+
     // Используем абсолютный путь для директории сессии
     const userDataDir = path.resolve(__dirname, '../../backend/sessions/fb-browser-session');
-    
+
     try {
       globalBrowser = await firefox.launchPersistentContext(userDataDir, {
         headless: false,
@@ -561,45 +559,45 @@ async function restartBrowser(): Promise<boolean> {
         offline: false,
         permissions: ['notifications', 'geolocation']
       });
-      
+
       const page = await globalBrowser.newPage();
       globalPage = page;
-      
+
       await page.addInitScript(() => {
-        Object.defineProperty(navigator, 'webdriver', { 
+        Object.defineProperty(navigator, 'webdriver', {
           get: () => undefined,
-          configurable: true 
+          configurable: true
         });
-        
-        Object.defineProperty(navigator, 'plugins', { 
+
+        Object.defineProperty(navigator, 'plugins', {
           get: () => ({
             length: 3,
             0: { name: 'Chrome PDF Plugin', description: 'Portable Document Format', filename: 'internal-pdf-viewer' },
             1: { name: 'Chrome PDF Viewer', description: '', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
             2: { name: 'Native Client', description: '', filename: 'internal-nacl-plugin' }
           }),
-          configurable: true 
+          configurable: true
         });
-        
-        Object.defineProperty(navigator, 'languages', { 
+
+        Object.defineProperty(navigator, 'languages', {
           get: () => ['ru-RU', 'ru', 'en-US', 'en'],
-          configurable: true 
+          configurable: true
         });
       });
-      
+
       await page.goto('https://www.facebook.com/marketplace', {
         waitUntil: 'domcontentloaded',
         timeout: 60000
       });
-      
+
       await page.waitForTimeout(getRandomDelay(2000, 4000));
       await humanMouseMove(page);
-      
+
       await handleCheckpoints(page);
-      
+
       console.log('✅ Браузер успешно перезапущен');
       updateStatus({ active: true, stage: 'browser_restarted' });
-      
+
       return true;
     } catch (error) {
       console.error('❌ Ошибка при перезапуске браузера:', error);
@@ -614,79 +612,79 @@ async function restartBrowser(): Promise<boolean> {
 async function autoRecover(): Promise<boolean> {
   try {
     console.log('🔄 Начинаю автовосстановление после ошибки Facebook...');
-    
+
     // Сохраняем текущее состояние фильтров
     const savedState = { ...currentAppState };
-    
+
     // Полный перезапуск браузера
     const restarted = await restartBrowser();
     if (!restarted) {
       console.log('❌ Не удалось перезапустить браузер при автовосстановлении');
       return false;
     }
-    
+
     // Восстанавливаем состояние
     currentAppState = savedState;
     await restoreState();
-    
+
     // Восстанавливаем фильтры если они есть
     if (currentAppState.location && currentAppState.radius) {
       try {
         console.log('🔧 Восстанавливаю фильтр местоположения...');
         await new Promise(resolve => setTimeout(resolve, 2000));
-        
+
         const mockReq = { body: { city: currentAppState.location, radius: currentAppState.radius } } as any;
-        const mockRes = { 
-          status: () => ({ json: () => {} }),
-          json: () => {},
-          send: () => {}
+        const mockRes = {
+          status: () => ({ json: () => { } }),
+          json: () => { },
+          send: () => { }
         } as any;
-        
+
         await handleSetLocation(mockReq, mockRes);
         console.log('✅ Фильтр местоположения восстановлен');
       } catch (e) {
         console.log('⚠️ Ошибка восстановления местоположения:', e);
       }
     }
-    
+
     if (currentAppState.minPrice !== undefined || currentAppState.maxPrice !== undefined) {
       try {
         console.log('🔧 Восстанавливаю фильтр цены...');
         await new Promise(resolve => setTimeout(resolve, 1000));
-        
+
         const mockReq = { body: { minPrice: currentAppState.minPrice, maxPrice: currentAppState.maxPrice } } as any;
-        const mockRes = { 
-          status: () => ({ json: () => {} }),
-          json: () => {},
-          send: () => {}
+        const mockRes = {
+          status: () => ({ json: () => { } }),
+          json: () => { },
+          send: () => { }
         } as any;
-        
+
         await handleSetPriceFilter(mockReq, mockRes);
         console.log('✅ Фильтр цены восстановлен');
       } catch (e) {
         console.log('⚠️ Ошибка восстановления цены:', e);
       }
     }
-    
+
     if (currentAppState.minYear !== undefined || currentAppState.maxYear !== undefined) {
       try {
         console.log('🔧 Восстанавливаю фильтр года...');
         await new Promise(resolve => setTimeout(resolve, 1000));
-        
+
         const mockReq = { body: { minYear: currentAppState.minYear, maxYear: currentAppState.maxYear } } as any;
-        const mockRes = { 
-          status: () => ({ json: () => {} }),
-          json: () => {},
-          send: () => {}
+        const mockRes = {
+          status: () => ({ json: () => { } }),
+          json: () => { },
+          send: () => { }
         } as any;
-        
+
         await handleSetYearFilter(mockReq, mockRes);
         console.log('✅ Фильтр года восстановлен');
       } catch (e) {
         console.log('⚠️ Ошибка восстановления года:', e);
       }
     }
-    
+
     console.log('✅ Автовосстановление завершено успешно');
     return true;
   } catch (error) {
@@ -697,14 +695,14 @@ async function autoRecover(): Promise<boolean> {
 
 async function handleCriticalError(errorContext: string, error: any): Promise<boolean> {
   console.log(`🚨 Критическая ошибка в ${errorContext}: ${error}`);
-  
+
   // Попытка автовосстановления
   const recovered = await autoRecover();
   if (recovered) {
     console.log(`✅ Автовосстановление после ошибки в ${errorContext} успешно`);
     return true;
   }
-  
+
   console.log(`❌ Автовосстановление после ошибки в ${errorContext} не удалось`);
   return false;
 }
@@ -712,7 +710,7 @@ async function handleCriticalError(errorContext: string, error: any): Promise<bo
 async function handleRestartBrowser(req: Request, res: Response): Promise<Response> {
   try {
     console.log('🔄 Принудительный перезапуск браузера через API...');
-    
+
     const restarted = await restartBrowser();
     if (restarted) {
       await restoreState();
@@ -741,9 +739,9 @@ async function handleRestartBrowser(req: Request, res: Response): Promise<Respon
 async function restoreState(): Promise<void> {
   try {
     if (!globalPage) return;
-    
+
     console.log('🔧 Восстанавливаю состояние приложения...');
-    
+
     if (currentAppState.selectedCategory) {
       console.log(`Восстанавливаю категорию: ${currentAppState.selectedCategory}`);
       const targetCategory = categories.find(c => c.name === currentAppState.selectedCategory);
@@ -764,7 +762,7 @@ async function restoreState(): Promise<void> {
             }
             return false;
           }, currentAppState.selectedCategory);
-          
+
           if (found) {
             await globalPage.waitForTimeout(getRandomDelay(1000, 2000));
           }
@@ -773,7 +771,7 @@ async function restoreState(): Promise<void> {
         }
       }
     }
-    
+
     if (currentAppState.searchQuery) {
       console.log(`Восстанавливаю поиск: ${currentAppState.searchQuery}`);
       try {
@@ -787,7 +785,7 @@ async function restoreState(): Promise<void> {
         console.log('Ошибка восстановления поиска:', e);
       }
     }
-    
+
     console.log('✅ Состояние восстановлено');
   } catch (error) {
     console.error('❌ Ошибка восстановления состояния:', error);
@@ -950,7 +948,7 @@ function setupApiServer() {
 async function handleSetPriceFilter(req: Request, res: Response): Promise<Response> {
   if (!globalPage) {
     return res.status(400).json({
-      success: false, 
+      success: false,
       error: "Браузер не инициализирован"
     });
   }
@@ -963,41 +961,41 @@ async function handleSetPriceFilter(req: Request, res: Response): Promise<Respon
   }
   try {
     console.log(`Устанавливаю фильтр цены: минимум ${minPrice || '-'}, максимум ${maxPrice || '-'}`);
-    
+
     const minPriceSelectors = [
       'input[placeholder="Мин."][aria-label="Минимум"]',
       'input[placeholder="Мин."]',
       'input.x1i10hfl.xggy1nq.xtpw4lu.x1tutvks.x1s3xk63.x1s07b3s.x1kdt53j.x1a2a7pz.xmjcpbm.x8cjs6t.x3sou0m.x80vd3b.x12u81az.xhk9q7s.x1otrzb0.x1i1ezom.x1o6z2jb.x13fuv20.x18b5jzi.x1q0q8m5.x1t7ytsu.x178xt8z.x1lun4ml.xso031l.xpilrb4.x9f619.xzsf02u.x1qlqyl8.xk50ysn.x6ikm8r.x1y1aw1k.xwib8y2.x1g0dm76.xpdmqnj.xh8yej3.xha3pab.xyc4ar7.x1b3pals.x10bruuh.x108a08w.x1fiakjg.xacio93.xr7akr5.x1yc453h.xc9qbxq[placeholder="Мин."][aria-label="Минимум"]'
     ];
-    
+
     const maxPriceSelectors = [
       'input[placeholder="Макс."][aria-label="Максимум"]',
       'input[placeholder="Макс."]',
       'label.xzsf02u.x6prxxf input.x1i10hfl.xggy1nq.xtpw4lu.x1tutvks.x1s3xk63.x1s07b3s.x1kdt53j.x1a2a7pz.xmjcpbm.x8cjs6t.x3sou0m.x80vd3b.x12u81az.xhk9q7s.x1otrzb0.x1i1ezom.x1o6z2jb.x13fuv20.x18b5jzi.x1q0q8m5.x1t7ytsu.x178xt8z.x1lun4ml.xso031l.xpilrb4.x9f619.xzsf02u.x1qlqyl8.xk50ysn.x6ikm8r.x1y1aw1k.xwib8y2.x1g0dm76.xpdmqnj.xh8yej3.xha3pab.xyc4ar7.x1b3pals.x10bruuh.x108a08w.x1fiakjg.xacio93.xr7akr5.x1yc453h.xc9qbxq[placeholder="Макс."][aria-label="Максимум"]'
     ];
-    
-      if (minPrice !== undefined && minPrice !== null) {
+
+    if (minPrice !== undefined && minPrice !== null) {
       const minPriceInput = await findElement(globalPage, minPriceSelectors, 'поле минимальной цены');
       if (minPriceInput) {
         await safeType(globalPage, minPriceInput, minPrice.toString());
         console.log(`Установлено значение минимальной цены: ${minPrice}`);
       }
     }
-    
-      if (maxPrice !== undefined && maxPrice !== null) {
+
+    if (maxPrice !== undefined && maxPrice !== null) {
       const maxPriceInput = await findElement(globalPage, maxPriceSelectors, 'поле максимальной цены');
       if (maxPriceInput) {
         await safeType(globalPage, maxPriceInput, maxPrice.toString());
         console.log(`Установлено значение максимальной цены: ${maxPrice}`);
       }
     }
-    
+
     await globalPage.waitForTimeout(1000);
-    
+
     // Сохраняем фильтры цены в состояние для автовосстановления
     currentAppState.minPrice = minPrice !== undefined && minPrice !== null ? minPrice : undefined;
     currentAppState.maxPrice = maxPrice !== undefined && maxPrice !== null ? maxPrice : undefined;
-    
+
     return res.json({
       success: true,
       message: `Фильтр цены установлен: мин=${minPrice || '-'}, макс=${maxPrice || '-'}`,
@@ -1015,7 +1013,7 @@ async function handleSetPriceFilter(req: Request, res: Response): Promise<Respon
 async function handleSearch(req: Request, res: Response): Promise<Response> {
   if (!globalPage) {
     return res.status(400).json({
-      success: false, 
+      success: false,
       error: "Браузер не инициализирован"
     });
   }
@@ -1029,19 +1027,19 @@ async function handleSearch(req: Request, res: Response): Promise<Response> {
   try {
     await handleCheckpoints(globalPage);
     console.log(`Выполняю поиск по запросу: "${query}"`);
-    
+
     // Селекторы, проверенные на работоспособность в последних версиях Facebook Marketplace
     const searchSelectors = [
       '.x9f619:nth-child(2) > div:nth-child(1) > .xjp7ctv:nth-child(1) [placeholder="Поиск в Marketplace"]',
-      'input[type="search"][placeholder="Поиск в Marketplace"]', 
+      'input[type="search"][placeholder="Поиск в Marketplace"]',
       'input[aria-label="Поиск в Marketplace"]',
       'input[type="search"]',
       '.x18bame2 > [placeholder="Поиск в Marketplace"]'
     ];
-    
+
     // Ищем поле поиска
     let searchInput = null;
-    
+
     for (const selector of searchSelectors) {
       try {
         searchInput = await globalPage.$(selector);
@@ -1053,14 +1051,14 @@ async function handleSearch(req: Request, res: Response): Promise<Response> {
         console.log(`Селектор не работает: ${selector}`);
       }
     }
-    
+
     if (!searchInput) {
       return res.status(404).json({
         success: false,
         error: "Не удалось найти поле поиска на странице"
       });
     }
-    
+
     // Очистка поля поиска
     try {
       await globalPage.fill(searchSelectors[0], '');
@@ -1074,9 +1072,9 @@ async function handleSearch(req: Request, res: Response): Promise<Response> {
         console.log('Ошибка при очистке поля поиска:', e);
       }
     }
-    
+
     await globalPage.waitForTimeout(300);
-    
+
     // Ввод текста в поле поиска
     try {
       await globalPage.fill(searchSelectors[0], query);
@@ -1093,12 +1091,12 @@ async function handleSearch(req: Request, res: Response): Promise<Response> {
             return await globalPage.evaluate(text => {
               const selectors = [
                 '.x9f619:nth-child(2) > div:nth-child(1) > .xjp7ctv:nth-child(1) [placeholder="Поиск в Marketplace"]',
-                'input[type="search"][placeholder="Поиск в Marketplace"]', 
+                'input[type="search"][placeholder="Поиск в Marketplace"]',
                 'input[aria-label="Поиск в Marketplace"]',
                 'input[type="search"]',
                 '.x18bame2 > [placeholder="Поиск в Marketplace"]'
               ];
-              
+
               for (const selector of selectors) {
                 try {
                   const input = document.querySelector(selector) as HTMLInputElement;
@@ -1107,23 +1105,23 @@ async function handleSearch(req: Request, res: Response): Promise<Response> {
                     input.dispatchEvent(new Event('input', { bubbles: true }));
                     return true;
                   }
-                } catch (e) {}
+                } catch (e) { }
               }
               return false;
             }, query);
           };
-          
+
           await fillByJs(query);
           console.log('Текст введен через JavaScript');
         } catch (jsError) {
           return res.status(500).json({
-            success: false, 
+            success: false,
             error: "Не удалось ввести текст в поле поиска всеми доступными методами"
           });
         }
       }
     }
-    
+
     // Нажатие Enter для выполнения поиска
     try {
       await globalPage.keyboard.press('Enter');
@@ -1139,12 +1137,12 @@ async function handleSearch(req: Request, res: Response): Promise<Response> {
         console.log('Выполнен поиск через submit формы');
       } catch (submitError) {
         return res.status(500).json({
-          success: false, 
+          success: false,
           error: "Не удалось выполнить поиск"
         });
       }
     }
-    
+
     // Проверка успешности поиска
     const currentUrl = globalPage.url();
     if (currentUrl.includes('/search') || currentUrl.includes('q=')) {
@@ -1157,8 +1155,8 @@ async function handleSearch(req: Request, res: Response): Promise<Response> {
         searchQuery: query
       });
     } else {
-      return res.json({ 
-        success: false, 
+      return res.json({
+        success: false,
         error: "Поиск не был выполнен",
         status: "failed"
       });
@@ -1186,13 +1184,13 @@ function extractModelNameFromTitle(title: string): string {
   try {
     // Находим год в заголовке
     const yearMatch = title.match(/^\s*(\b(19|20)\d{2}\b)\s*/);
-    
+
     if (yearMatch && yearMatch[0]) {
       // Удаляем год и лишние пробелы из начала строки
       const modelName = title.replace(yearMatch[0], '').trim();
       return modelName || title; // Возвращаем оригинальный заголовок, если после удаления года ничего не осталось
     }
-    
+
     // Если год не найден в начале, возвращаем оригинальный заголовок
     return title;
   } catch (error) {
@@ -1272,7 +1270,7 @@ async function getListingAgeMinutes(url: string): Promise<number | null> {
     return null;
   } finally {
     if (page) {
-      try { await page.close(); } catch {}
+      try { await page.close(); } catch { }
     }
   }
 }
@@ -1280,11 +1278,11 @@ async function getListingAgeMinutes(url: string): Promise<number | null> {
 async function handleNavigateToMarketplace(req: Request, res: Response): Promise<Response> {
   if (!globalPage) {
     return res.status(400).json({
-      success: false, 
+      success: false,
       error: "Браузер не инициализирован"
     });
   }
-  
+
   try {
     await handleCheckpoints(globalPage);
     console.log('Навигация на базовую страницу Facebook Marketplace...');
@@ -1292,9 +1290,9 @@ async function handleNavigateToMarketplace(req: Request, res: Response): Promise
       waitUntil: 'domcontentloaded',
       timeout: 30000
     });
-    
+
     await globalPage.waitForTimeout(2000);
-    
+
     try {
       console.log('Проверяю наличие всплывающего окна...');
       const closeButton = await globalPage.waitForSelector('div[aria-label="Закрыть"][role="button"]', { timeout: 3000 }).catch(() => null);
@@ -1307,9 +1305,9 @@ async function handleNavigateToMarketplace(req: Request, res: Response): Promise
     } catch (err) {
       console.log('Ошибка при обработке всплывающего окна:', err);
     }
-    
+
     console.log('Навигация на базовую страницу Marketplace завершена успешно');
-    
+
     return res.json({
       success: true,
       message: "Успешная навигация на базовую страницу Facebook Marketplace",
@@ -1327,14 +1325,14 @@ async function handleNavigateToMarketplace(req: Request, res: Response): Promise
 async function handleRefreshPage(req: Request, res: Response): Promise<Response> {
   if (!globalPage) {
     return res.status(400).json({
-      success: false, 
+      success: false,
       error: "Браузер не инициализирован"
     });
   }
-  
+
   try {
     console.log('Обновляю страницу Marketplace...');
-    
+
     const isDead = await detectDeadBrowser();
     if (isDead) {
       console.log('🔄 Браузер мертв, выполняю полный перезапуск...');
@@ -1354,10 +1352,10 @@ async function handleRefreshPage(req: Request, res: Response): Promise<Response>
         });
       }
     }
-    
+
     await globalPage.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
     console.log('Страница обновлена успешно');
-    
+
     return res.json({
       success: true,
       message: "Страница успешно обновлена",
@@ -1365,22 +1363,22 @@ async function handleRefreshPage(req: Request, res: Response): Promise<Response>
     });
   } catch (error) {
     console.log('Ошибка при обновлении страницы:', error);
-    
+
     // Если ошибка таймаута или критическая - перезапускаем браузер
-    if (String(error).includes('Timeout') || 
-        String(error).includes('NS_BINDING_ABORTED') ||
-        String(error).includes('detached')) {
-      
+    if (String(error).includes('Timeout') ||
+      String(error).includes('NS_BINDING_ABORTED') ||
+      String(error).includes('detached')) {
+
       console.log('🔄 Обнаружена критическая ошибка браузера, выполняю перезапуск...');
       const recovered = await handleCriticalError('refresh-page', error);
-      
-        return res.json({
+
+      return res.json({
         success: recovered,
         message: recovered ? 'Страница обновлена после перезапуска браузера' : 'Ошибка перезапуска браузера',
         status: recovered ? "restarted" : "failed"
-        });
+      });
     }
-    
+
     return res.status(500).json({
       success: false,
       error: `Не удалось обновить страницу: ${error}`,
@@ -1391,15 +1389,15 @@ async function handleRefreshPage(req: Request, res: Response): Promise<Response>
 async function handleGetListings(req: Request, res: Response, count: number = 5): Promise<Response> {
   const maxRetries = 3;
   let retryCount = 0;
-  
+
   while (retryCount < maxRetries) {
     if (!globalPage) {
       return res.status(400).json({
-        success: false, 
+        success: false,
         error: "Браузер не инициализирован"
       });
     }
-    
+
     try {
       const isDead = await detectDeadBrowser();
       if (isDead) {
@@ -1419,9 +1417,9 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
           continue;
         }
       }
-      
+
       await handleCheckpoints(globalPage);
-      
+
       // Проверка ошибки Facebook перед парсингом товаров
       const hasFacebookError = await detectFacebookError();
       if (hasFacebookError) {
@@ -1445,381 +1443,384 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
           });
         }
       }
-      
+
       console.log(`Получаю список ${count} товаров с Marketplace... (попытка ${retryCount + 1}/${maxRetries})`);
-    const imgDir = path.join(process.cwd(), 'src', 'img');
-    if (!fs.existsSync(imgDir)) {
-      fs.mkdirSync(imgDir, { recursive: true });
-      console.log(`Создана директория для изображений: ${imgDir}`);
-    }
-    console.log('Ожидаем загрузки товаров...');
-    await globalPage.waitForTimeout(3000);
-    console.log('Извлекаем данные о товарах...');
-    const sortButton = await globalPage.$('div[role="button"].x1i10hfl.x1qjc9v5.xjbqb8w.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x1ypdohk.xdl72j9.x2lah0s.xe8uvvx.xat24cr.x1mh8g0r.x2lwn1j.xeuugli.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x1n2onr6.x16tdsg8.x1hl2dhg.xggy1nq.x1ja2u2z.x1t137rt.x1o1ewxj.x3x9cwd.x1e5q0jg.x13rtm0m.x1q0g3np.x87ps6o.x1lku1pv.x78zum5.x1a2a7pz.xqvfhly.x1emribx.xdj266r');
-    if (sortButton) {
-      try {
-        await sortButton.click({ timeout: 3000 });
-        await globalPage.waitForTimeout(500);
-      } catch {
+      const imgDir = path.join(process.cwd(), 'src', 'img');
+      if (!fs.existsSync(imgDir)) {
+        fs.mkdirSync(imgDir, { recursive: true });
+        console.log(`Создана директория для изображений: ${imgDir}`);
+      }
+      console.log('Ожидаем загрузки товаров...');
+      await globalPage.waitForTimeout(3000);
+      console.log('Извлекаем данные о товарах...');
+      const sortButton = await globalPage.$('div[role="button"].x1i10hfl.x1qjc9v5.xjbqb8w.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x1ypdohk.xdl72j9.x2lah0s.xe8uvvx.xat24cr.x1mh8g0r.x2lwn1j.xeuugli.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x1n2onr6.x16tdsg8.x1hl2dhg.xggy1nq.x1ja2u2z.x1t137rt.x1o1ewxj.x3x9cwd.x1e5q0jg.x13rtm0m.x1q0g3np.x87ps6o.x1lku1pv.x78zum5.x1a2a7pz.xqvfhly.x1emribx.xdj266r');
+      if (sortButton) {
         try {
-          await sortButton.evaluate((el) => (el as HTMLElement).click());
+          await sortButton.click({ timeout: 3000 });
           await globalPage.waitForTimeout(500);
         } catch {
-          const child = await sortButton.$('div,span');
-          if (child) {
-            await child.click({ timeout: 3000 });
+          try {
+            await sortButton.evaluate((el) => (el as HTMLElement).click());
             await globalPage.waitForTimeout(500);
+          } catch {
+            const child = await sortButton.$('div,span');
+            if (child) {
+              await child.click({ timeout: 3000 });
+              await globalPage.waitForTimeout(500);
+            }
           }
         }
-      }
-      console.log('Ищу опцию "Дата публикации: сначала новые"...');
-      try {
-        const newPublicationOption = await globalPage.locator('span', { 
-          hasText: 'Дата публикации: сначала новые' 
-        }).first();
-        if (await newPublicationOption.count() > 0) {
-          console.log('Опция найдена через локатор по тексту, кликаю...');
-          await newPublicationOption.click();
-          await globalPage.waitForTimeout(1000);
-        } else {
-          const optionById = await globalPage.$('span[id="«r3j»"]');
-          if (optionById) {
-            console.log('Опция найдена через id="«r3j»", кликаю...');
-            await optionById.click();
+        console.log('Ищу опцию "Дата публикации: сначала новые"...');
+        try {
+          const newPublicationOption = await globalPage.locator('span', {
+            hasText: 'Дата публикации: сначала новые'
+          }).first();
+          if (await newPublicationOption.count() > 0) {
+            console.log('Опция найдена через локатор по тексту, кликаю...');
+            await newPublicationOption.click();
             await globalPage.waitForTimeout(1000);
           } else {
-            const sortMenuItem = await globalPage.waitForSelector('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x1xmvt09.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.xudqn12.x3x7a5m.x6prxxf.xvq8zen.xk50ysn.xzsf02u.x1yc453h', { timeout: 3000 });
-            if (sortMenuItem) {
-              const text = await sortMenuItem.textContent();
-              if (text && text.includes('Дата публикации: сначала новые')) {
-                console.log('Опция найдена через CSS селектор, кликаю...');
-                await sortMenuItem.click();
-                await globalPage.waitForTimeout(1000);
-              }
+            const optionById = await globalPage.$('span[id="«r3j»"]');
+            if (optionById) {
+              console.log('Опция найдена через id="«r3j»", кликаю...');
+              await optionById.click();
+              await globalPage.waitForTimeout(1000);
             } else {
-              console.log('Пытаюсь найти опцию через JavaScript...');
-              await globalPage.evaluate(() => {
-                const allSpans = Array.from(document.querySelectorAll('span'));
-                for (const span of allSpans) {
-                  if (span.textContent && span.textContent.includes('Дата публикации: сначала новые')) {
-                    (span as HTMLElement).click();
-                    return true;
-                  }
+              const sortMenuItem = await globalPage.waitForSelector('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x1xmvt09.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.xudqn12.x3x7a5m.x6prxxf.xvq8zen.xk50ysn.xzsf02u.x1yc453h', { timeout: 3000 });
+              if (sortMenuItem) {
+                const text = await sortMenuItem.textContent();
+                if (text && text.includes('Дата публикации: сначала новые')) {
+                  console.log('Опция найдена через CSS селектор, кликаю...');
+                  await sortMenuItem.click();
+                  await globalPage.waitForTimeout(1000);
                 }
-                const radioItems = Array.from(document.querySelectorAll('div[aria-checked="false"][role="radio"]'));
-                for (const radio of radioItems) {
-                  const textSpan = radio.querySelector('span');
-                  if (textSpan && textSpan.textContent && textSpan.textContent.includes('Дата публикации: сначала новые')) {
-                    (radio as HTMLElement).click();
-                    return true;
+              } else {
+                console.log('Пытаюсь найти опцию через JavaScript...');
+                await globalPage.evaluate(() => {
+                  const allSpans = Array.from(document.querySelectorAll('span'));
+                  for (const span of allSpans) {
+                    if (span.textContent && span.textContent.includes('Дата публикации: сначала новые')) {
+                      (span as HTMLElement).click();
+                      return true;
+                    }
                   }
-                }
-                const exactRadioSelector = 'div[aria-checked="false"][role="radio"].x1i10hfl.x1qjc9v5.xjbqb8w.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x1ypdohk.xdl72j9.x2lah0s.xe8uvvx.xdj266r.x11i5rnm.xat24cr.x1mh8g0r.x2lwn1j.xeuugli.xexx8yu.x4uap5.x18d9i69.x1sxyh0.xurb0ha.xexx8yu.x1n2onr6.x1ja2u2z.x1gg8mnh';
-                const exactRadioButtons = document.querySelectorAll(exactRadioSelector);
-                for (const radio of Array.from(exactRadioButtons)) {
-                  const inner = radio.querySelector('div.x6s0dn4.x1q0q8m5.x1qhh985.xu3j5b3.xcfux6l.x26u7qi.xm0m39n.x13fuv20.x972fbf.x9f619.x78zum5.x1q0g3np.x1iyjqo2.xs83m0k.x1qughib.xat24cr.x11i5rnm.x1mh8g0r.xdj266r.xeuugli.x18d9i69.x1sxyh0.xurb0ha.xexx8yu.x1n2onr6.x1ja2u2z.x1gg8mnh');
-                  if (inner) {
-                    const textDiv = inner.querySelector('div.xod5an3.x16n37ib.x14vqqas.x1n2onr6.xqcrz7y');
-                    if (textDiv) {
-                      const targetSpan = radio.querySelector('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x10flsy6.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.x4zkp8e.x41vudc.x6prxxf.xvq8zen.x1s688f.xzsf02u');
-                      if (targetSpan && targetSpan.textContent && targetSpan.textContent.includes('Дата публикации: сначала новые')) {
-                        console.log('Найден точный элемент по HTML структуре');
-                        (radio as HTMLElement).click();
-                        return true;
+                  const radioItems = Array.from(document.querySelectorAll('div[aria-checked="false"][role="radio"]'));
+                  for (const radio of radioItems) {
+                    const textSpan = radio.querySelector('span');
+                    if (textSpan && textSpan.textContent && textSpan.textContent.includes('Дата публикации: сначала новые')) {
+                      (radio as HTMLElement).click();
+                      return true;
+                    }
+                  }
+                  const exactRadioSelector = 'div[aria-checked="false"][role="radio"].x1i10hfl.x1qjc9v5.xjbqb8w.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x1ypdohk.xdl72j9.x2lah0s.xe8uvvx.xdj266r.x11i5rnm.xat24cr.x1mh8g0r.x2lwn1j.xeuugli.xexx8yu.x4uap5.x18d9i69.x1sxyh0.xurb0ha.xexx8yu.x1n2onr6.x1ja2u2z.x1gg8mnh';
+                  const exactRadioButtons = document.querySelectorAll(exactRadioSelector);
+                  for (const radio of Array.from(exactRadioButtons)) {
+                    const inner = radio.querySelector('div.x6s0dn4.x1q0q8m5.x1qhh985.xu3j5b3.xcfux6l.x26u7qi.xm0m39n.x13fuv20.x972fbf.x9f619.x78zum5.x1q0g3np.x1iyjqo2.xs83m0k.x1qughib.xat24cr.x11i5rnm.x1mh8g0r.xdj266r.xeuugli.x18d9i69.x1sxyh0.xurb0ha.xexx8yu.x1n2onr6.x1ja2u2z.x1gg8mnh');
+                    if (inner) {
+                      const textDiv = inner.querySelector('div.xod5an3.x16n37ib.x14vqqas.x1n2onr6.xqcrz7y');
+                      if (textDiv) {
+                        const targetSpan = radio.querySelector('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x10flsy6.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.x4zkp8e.x41vudc.x6prxxf.xvq8zen.x1s688f.xzsf02u');
+                        if (targetSpan && targetSpan.textContent && targetSpan.textContent.includes('Дата публикации: сначала новые')) {
+                          console.log('Найден точный элемент по HTML структуре');
+                          (radio as HTMLElement).click();
+                          return true;
+                        }
                       }
                     }
                   }
-                }
-                return false;
-              });
+                  return false;
+                });
+                await globalPage.waitForTimeout(1000);
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`Ошибка при клике на "Дата публикации: сначала новые": ${error}`);
+        }
+
+        // Клик на "Дата размещения"
+        try {
+          console.log('Ищу элемент "Дата размещения"...');
+          const datePostingElement = await globalPage.locator('span', { hasText: 'Дата размещения' }).first();
+          if (await datePostingElement.count() > 0) {
+            console.log('Элемент "Дата размещения" найден, кликаю...');
+            await datePostingElement.click();
+            await globalPage.waitForTimeout(1000);
+          } else {
+            // Попытка через селектор класса
+            const datePostingByClass = await globalPage.$('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x10flsy6.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.x4zkp8e.x41vudc.x6prxxf.xvq8zen.x1s688f.xzsf02u');
+            if (datePostingByClass) {
+              console.log('Элемент "Дата размещения" найден по классу, кликаю...');
+              await datePostingByClass.click();
               await globalPage.waitForTimeout(1000);
             }
           }
+        } catch (error) {
+          console.error(`Ошибка при клике на "Дата размещения": ${error}`);
         }
-      } catch (error) {
-        console.error(`Ошибка при клике на "Дата публикации: сначала новые": ${error}`);
-      }
-      
-      // Клик на "Дата размещения"
-      try {
-        console.log('Ищу элемент "Дата размещения"...');
-        const datePostingElement = await globalPage.locator('span', { hasText: 'Дата размещения' }).first();
-        if (await datePostingElement.count() > 0) {
-          console.log('Элемент "Дата размещения" найден, кликаю...');
-          await datePostingElement.click();
-          await globalPage.waitForTimeout(1000);
-        } else {
-          // Попытка через селектор класса
-          const datePostingByClass = await globalPage.$('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x10flsy6.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.x4zkp8e.x41vudc.x6prxxf.xvq8zen.x1s688f.xzsf02u');
-          if (datePostingByClass) {
-            console.log('Элемент "Дата размещения" найден по классу, кликаю...');
-            await datePostingByClass.click();
-            await globalPage.waitForTimeout(1000);
-          }
-        }
-      } catch (error) {
-        console.error(`Ошибка при клике на "Дата размещения": ${error}`);
-      }
-      
-      // Клик на "Последние 24 часа"
-      try {
-        console.log('Ищу элемент "Последние 24 часа"...');
-        const last24HoursElement = await globalPage.locator('span', { hasText: 'Последние 24 часа' }).first();
-        if (await last24HoursElement.count() > 0) {
-          console.log('Элемент "Последние 24 часа" найден, кликаю...');
-          await last24HoursElement.click();
-          await globalPage.waitForTimeout(1000);
-        } else {
-          // Попытка через селектор класса
-          const last24HoursByClass = await globalPage.$('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x10flsy6.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.x4zkp8e.x41vudc.x6prxxf.xvq8zen.xk50ysn.xzsf02u.x1yc453h');
-          if (last24HoursByClass) {
-            console.log('Элемент "Последние 24 часа" найден по классу, кликаю...');
-            await last24HoursByClass.click();
-            await globalPage.waitForTimeout(1000);
-          }
-        }
-      } catch (error) {
-        console.error(`Ошибка при клике на "Последние 24 часа": ${error}`);
-      }
-    }
-    let items = await globalPage.evaluate((maxCount: number) => {
-      const results: MarketplaceItem[] = [];
-      const containers = document.querySelectorAll('div.x9f619.x78zum5.xdt5ytf.x1qughib.x1rdy4ex.xz9dl7a.xsag5q8.xh8yej3.xp0eagm.x1nrcals, div[aria-hidden="false"] h1, div.xyamay9.xv54qhq.x18d9i69.xf7dkkf, div.x9f619.x1ja2u2z.x78zum5.x2lah0s.xyamay9');
-      const productCards: Element[] = [];
-      containers.forEach(container => {
-        let parent = container.parentElement;
-        while (parent && parent.tagName !== 'A') {
-          parent = parent.parentElement;
-        }
-        if (parent && parent.tagName === 'A' && parent.getAttribute('role') === 'link') {
-          productCards.push(parent);
-        }
-      });
-      if (productCards.length === 0) {
-        console.log('Используем запасные селекторы для карточек товаров');
-        const alternativeCards = Array.from(document.querySelectorAll('a[role="link"]'))
-          .filter(el => {
-            const hasPrice = el.querySelector('span.x193iq5w[dir="auto"]');
-            const hasImage = el.querySelector('img.x168nmei.x13lgxp2');
-            return hasPrice && hasImage;
-          });
-        if (alternativeCards.length > 0) {
-          productCards.push(...alternativeCards);
-        }
-      }
-      for (let i = 0; i < Math.min(maxCount, productCards.length); i++) {
-        const card = productCards[i] as HTMLAnchorElement;
-        let price = "Цена не указана";
-        let title = "Без названия";
-        let location = "";
-        let imageUrl = "";
-        let itemUrl = "";
-        const priceElement = card.querySelector('span.x193iq5w[dir="auto"]');
-        if (priceElement) {
-          price = priceElement.textContent || "Цена не указана";
-        } else {
-          const priceAlt = card.querySelector('div.x1xmf6yo span');
-          if (priceAlt) price = priceAlt.textContent || price;
-        }
-        const titleElement = card.querySelector('span.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6[style*="-webkit-box-orient"]');
-        if (titleElement) {
-          title = titleElement.textContent || "Без названия";
-        } else {
-          const tAlt = card.querySelector('h1 span');
-          if (tAlt) title = tAlt.textContent || title;
-        }
-        const locationElement = card.querySelector('span.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6.xlyipyv.xuxw1ft');
-        if (locationElement) {
-          location = locationElement.textContent || "";
-        } else {
-          const locAlt = card.querySelector('a[href*="/marketplace/"] span');
-          if (locAlt) location = locAlt.textContent || '';
-        }
-        const imageElement = card.querySelector('img.x168nmei.x13lgxp2');
-        if (imageElement) {
-          imageUrl = imageElement.getAttribute('src') || "";
-        } else {
-          const altImageElement = card.querySelector('img');
-          if (altImageElement) {
-            imageUrl = altImageElement.getAttribute('src') || "";
-          }
-        }
-          const href = card.getAttribute('href');
-          if (href) {
-          itemUrl = (href.startsWith('http') ? href : `https://www.facebook.com${href}`).split('?')[0];
-          } else {
-            itemUrl = "";
-        }
-        // попытка вытащить возраст объявления
-        let ageMinutes: number | null = null;
-        try {
-          const abbr = card.querySelector('abbr[aria-label]');
-          if (abbr) {
-            const raw = abbr.getAttribute('aria-label') || '';
-            const txt = raw.toLowerCase().trim();
-            const m = txt.match(/(\d+)/);
-            const val = m ? parseInt(m[1], 10) : 0;
-            if (/мин/.test(txt)) ageMinutes = val;
-            else if (/ч/.test(txt) || /час/.test(txt)) ageMinutes = val * 60;
-            else if (/дн/.test(txt) || /день/.test(txt)) ageMinutes = val * 1440;
-            else if (/нед/.test(txt)) ageMinutes = val ? val * 10080 : 10080;
-          }
-        } catch {}
 
-        const modelName = extractModelNameFromTitle(title.trim());
-        
-        results.push({
-          price: price.trim(),
-          title: title.trim(),
-          location: location.trim(),
-          imageUrl,
-          itemUrl,
-          ageMinutes: ageMinutes === null ? undefined : ageMinutes,
-          modelName: modelName
-        });
-      }
-      return results;
-    }, count);
-    console.log(`Найдено товаров: ${items.length}`);
-    
-    let filteredCount = 0;
-    if (appStatus.yearFilterNotFound) {
-      console.log('Фильтр года не найден, выполняем сортировку и фильтрацию по году из заголовка...');
-      if (appStatus.minYear !== undefined || appStatus.maxYear !== undefined) {
-        console.log(`Применяем фильтр года: от ${appStatus.minYear || '-'} до ${appStatus.maxYear || '-'}`);
-        const filteredItems = items.filter(item => {
-          const year = extractYearFromTitle(item.title);
-          if (year === null) return true;
-          if (appStatus.minYear !== undefined && year < appStatus.minYear) {
-            console.log(`Отфильтровано объявление с годом ${year} < ${appStatus.minYear}: ${item.title}`);
-            return false;
-          }
-          if (appStatus.maxYear !== undefined && year > appStatus.maxYear) {
-            console.log(`Отфильтровано объявление с годом ${year} > ${appStatus.maxYear}: ${item.title}`);
-            return false;
-          }
-          
-          return true;
-        });
-        
-        filteredCount = items.length - filteredItems.length;
-        console.log(`Отфильтровано объявлений: ${filteredCount} из ${items.length}`);
-        items = filteredItems;
-      }
-      items.sort((a, b) => {
-        const yearA = extractYearFromTitle(a.title);
-        const yearB = extractYearFromTitle(b.title);
-        if (yearA !== null && yearB !== null) {
-          return yearB - yearA;
-        }
-        if (yearA !== null) return -1;
-        if (yearB !== null) return 1;
-        return 0;
-      });
-      
-      console.log('Сортировка по году из заголовка завершена');
-    }
-    const uniqueUrls = new Set<string>();
-    const uniqueTitles = new Set<string>();
-    const originalItemsCount = items.length;
-    items = items.filter(item => {
-      if (!item.itemUrl) {
-        console.log(`Обнаружено объявление без URL: ${item.title}`);
-        return false;
-      }
-      if (uniqueUrls.has(item.itemUrl)) {
-        console.log(`Обнаружен дубликат по URL: ${item.title} (${item.itemUrl})`);
-        return false;
-      } 
-      const itemSignature = `${item.title}_${item.price}_${item.location}`;
-      if (uniqueTitles.has(itemSignature)) {
-        console.log(`Обнаружен дубликат по содержимому: ${itemSignature}`);
-        return false;
-      }
-      uniqueUrls.add(item.itemUrl);
-      uniqueTitles.add(itemSignature);
-      return true;
-    });
-    
-    // Фильтр по давности объявления
-    if (currentAppState.maxAgeMinutes && currentAppState.maxAgeMinutes > 0) {
-      console.log(`Применяем фильтр по возрасту: не старше ${currentAppState.maxAgeMinutes} минут`);
-      const ageFiltered: MarketplaceItem[] = [];
-      for (const itm of items) {
-        let ageVal: number | null = itm.ageMinutes !== undefined ? itm.ageMinutes : null;
-        if (ageVal === null) {
-          ageVal = await getListingAgeMinutes(itm.itemUrl);
-        }
-        if (ageVal === null) {
-          console.log(`⚠️ Не удалось определить возраст: ${itm.itemUrl}`);
-          continue; // пропускаем при ошибке
-        }
-        if (ageVal <= currentAppState.maxAgeMinutes) {
-          ageFiltered.push(itm);
-        } else {
-          console.log(`Отфильтровано по возрасту (${ageVal} мин > ${currentAppState.maxAgeMinutes}): ${itm.title}`);
-        }
-      }
-      items = ageFiltered;
-    }
-    
-    const duplicatesRemoved = originalItemsCount - items.length;
-    console.log(`Удалено дубликатов: ${duplicatesRemoved}`);
-    
-    let imageStats = {
-      downloaded: 0,
-      reused: 0,
-      cached: 0
-    };
-    
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.imageUrl && globalPage) {
+        // Клик на "Последние 24 часа"
         try {
-          const contentKey = `${item.title}_${item.price}_${item.location}`;
-          
-          if (imageCache.has(contentKey)) {
-            const cachedPath = imageCache.get(contentKey)!;
-            if (fs.existsSync(path.join(imgDir, cachedPath))) {
-              console.log(`Используется кэшированное изображение: ${item.title} -> ${cachedPath}`);
-              item.savedImagePath = `src/img/${cachedPath}`;
-              imageStats.cached++;
-              continue;
-            } else {
-              imageCache.delete(contentKey);
+          console.log('Ищу элемент "Последние 24 часа"...');
+          const last24HoursElement = await globalPage.locator('span', { hasText: 'Последние 24 часа' }).first();
+          if (await last24HoursElement.count() > 0) {
+            console.log('Элемент "Последние 24 часа" найден, кликаю...');
+            await last24HoursElement.click();
+            await globalPage.waitForTimeout(1000);
+          } else {
+            // Попытка через селектор класса
+            const last24HoursByClass = await globalPage.$('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x10flsy6.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.x4zkp8e.x41vudc.x6prxxf.xvq8zen.xk50ysn.xzsf02u.x1yc453h');
+            if (last24HoursByClass) {
+              console.log('Элемент "Последние 24 часа" найден по классу, кликаю...');
+              await last24HoursByClass.click();
+              await globalPage.waitForTimeout(1000);
             }
           }
-
-          console.log(`Скачивание изображения для товара: ${item.title}`);
-          const fileName = generateStableFileName(item.title, item.price, item.location);
-          const filePath = path.join(imgDir, fileName);
-          
-          if (fs.existsSync(filePath)) {
-            console.log(`Файл уже существует, переиспользуется: ${fileName}`);
-            item.savedImagePath = `src/img/${fileName}`;
-            imageCache.set(contentKey, fileName);
-            imageStats.reused++;
-            continue;
-          }
-
-          try {
-            await downloadImage(item.imageUrl, filePath);
-            console.log(`Изображение сохранено: ${filePath}`);
-            item.savedImagePath = `src/img/${fileName}`;
-            imageCache.set(contentKey, fileName);
-            pruneImageCache();
-            imageStats.downloaded++;
-          } catch (imgErr) {
-            console.error(`Ошибка downloadImage: ${imgErr}`);
-          }
         } catch (error) {
-          console.error(`Ошибка при скачивании изображения: ${error}`);
+          console.error(`Ошибка при клике на "Последние 24 часа": ${error}`);
         }
       }
-    }
-    
-    console.log(`Статистика изображений: скачано ${imageStats.downloaded}, переиспользовано ${imageStats.reused}, из кэша ${imageStats.cached}`);
-    
+      let items = await globalPage.evaluate((maxCount: number) => {
+        const results: MarketplaceItem[] = [];
+        const containers = document.querySelectorAll('div.x9f619.x78zum5.xdt5ytf.x1qughib.x1rdy4ex.xz9dl7a.xsag5q8.xh8yej3.xp0eagm.x1nrcals, div[aria-hidden="false"] h1, div.xyamay9.xv54qhq.x18d9i69.xf7dkkf, div.x9f619.x1ja2u2z.x78zum5.x2lah0s.xyamay9');
+        const productCards: Element[] = [];
+        containers.forEach(container => {
+          let parent = container.parentElement;
+          while (parent && parent.tagName !== 'A') {
+            parent = parent.parentElement;
+          }
+          if (parent && parent.tagName === 'A' && parent.getAttribute('role') === 'link') {
+            productCards.push(parent);
+          }
+        });
+        if (productCards.length === 0) {
+          console.log('Используем запасные селекторы для карточек товаров');
+          const alternativeCards = Array.from(document.querySelectorAll('a[role="link"]'))
+            .filter(el => {
+              const hasPrice = el.querySelector('span.x193iq5w[dir="auto"]');
+              const hasImage = el.querySelector('img.x168nmei.x13lgxp2');
+              return hasPrice && hasImage;
+            });
+          if (alternativeCards.length > 0) {
+            productCards.push(...alternativeCards);
+          }
+        }
+        for (let i = 0; i < Math.min(maxCount, productCards.length); i++) {
+          const card = productCards[i] as HTMLAnchorElement;
+          let price = "Цена не указана";
+          let title = "Без названия";
+          let location = "";
+          let imageUrl = "";
+          let itemUrl = "";
+          const priceElement = card.querySelector('span.x193iq5w[dir="auto"]');
+          if (priceElement) {
+            price = priceElement.textContent || "Цена не указана";
+          } else {
+            const priceAlt = card.querySelector('div.x1xmf6yo span');
+            if (priceAlt) price = priceAlt.textContent || price;
+          }
+          const titleElement = card.querySelector('span.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6[style*="-webkit-box-orient"]');
+          if (titleElement) {
+            title = titleElement.textContent || "Без названия";
+          } else {
+            const tAlt = card.querySelector('h1 span');
+            if (tAlt) title = tAlt.textContent || title;
+          }
+          const locationElement = card.querySelector('span.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6.xlyipyv.xuxw1ft');
+          if (locationElement) {
+            location = locationElement.textContent || "";
+          } else {
+            const locAlt = card.querySelector('a[href*="/marketplace/"] span');
+            if (locAlt) location = locAlt.textContent || '';
+          }
+          const imageElement = card.querySelector('img.x168nmei.x13lgxp2');
+          if (imageElement) {
+            imageUrl = imageElement.getAttribute('src') || "";
+          } else {
+            const altImageElement = card.querySelector('img');
+            if (altImageElement) {
+              imageUrl = altImageElement.getAttribute('src') || "";
+            }
+          }
+          const href = card.getAttribute('href');
+          if (href) {
+            itemUrl = (href.startsWith('http') ? href : `https://www.facebook.com${href}`).split('?')[0];
+          } else {
+            itemUrl = "";
+          }
+          // попытка вытащить возраст объявления
+          let ageMinutes: number | null = null;
+          try {
+            const abbr = card.querySelector('abbr[aria-label]');
+            if (abbr) {
+              const raw = abbr.getAttribute('aria-label') || '';
+              const txt = raw.toLowerCase().trim();
+              const m = txt.match(/(\d+)/);
+              const val = m ? parseInt(m[1], 10) : 0;
+              if (/мин/.test(txt)) ageMinutes = val;
+              else if (/ч/.test(txt) || /час/.test(txt)) ageMinutes = val * 60;
+              else if (/дн/.test(txt) || /день/.test(txt)) ageMinutes = val * 1440;
+              else if (/нед/.test(txt)) ageMinutes = val ? val * 10080 : 10080;
+            }
+          } catch { }
+
+          results.push({
+            price: price.trim(),
+            title: title.trim(),
+            location: location.trim(),
+            imageUrl,
+            itemUrl,
+            ageMinutes: ageMinutes === null ? undefined : ageMinutes
+          });
+        }
+        return results;
+      }, count);
+      console.log(`Найдено товаров: ${items.length}`);
+
+      // Добавляем названия моделей на серверной стороне
+      items = items.map(item => ({
+        ...item,
+        modelName: extractModelNameFromTitle(item.title)
+      }));
+
+      let filteredCount = 0;
+      if (appStatus.yearFilterNotFound) {
+        console.log('Фильтр года не найден, выполняем сортировку и фильтрацию по году из заголовка...');
+        if (appStatus.minYear !== undefined || appStatus.maxYear !== undefined) {
+          console.log(`Применяем фильтр года: от ${appStatus.minYear || '-'} до ${appStatus.maxYear || '-'}`);
+          const filteredItems = items.filter(item => {
+            const year = extractYearFromTitle(item.title);
+            if (year === null) return true;
+            if (appStatus.minYear !== undefined && year < appStatus.minYear) {
+              console.log(`Отфильтровано объявление с годом ${year} < ${appStatus.minYear}: ${item.title}`);
+              return false;
+            }
+            if (appStatus.maxYear !== undefined && year > appStatus.maxYear) {
+              console.log(`Отфильтровано объявление с годом ${year} > ${appStatus.maxYear}: ${item.title}`);
+              return false;
+            }
+
+            return true;
+          });
+
+          filteredCount = items.length - filteredItems.length;
+          console.log(`Отфильтровано объявлений: ${filteredCount} из ${items.length}`);
+          items = filteredItems;
+        }
+        items.sort((a, b) => {
+          const yearA = extractYearFromTitle(a.title);
+          const yearB = extractYearFromTitle(b.title);
+          if (yearA !== null && yearB !== null) {
+            return yearB - yearA;
+          }
+          if (yearA !== null) return -1;
+          if (yearB !== null) return 1;
+          return 0;
+        });
+
+        console.log('Сортировка по году из заголовка завершена');
+      }
+      const uniqueUrls = new Set<string>();
+      const uniqueTitles = new Set<string>();
+      const originalItemsCount = items.length;
+      items = items.filter(item => {
+        if (!item.itemUrl) {
+          console.log(`Обнаружено объявление без URL: ${item.title}`);
+          return false;
+        }
+        if (uniqueUrls.has(item.itemUrl)) {
+          console.log(`Обнаружен дубликат по URL: ${item.title} (${item.itemUrl})`);
+          return false;
+        }
+        const itemSignature = `${item.title}_${item.price}_${item.location}`;
+        if (uniqueTitles.has(itemSignature)) {
+          console.log(`Обнаружен дубликат по содержимому: ${itemSignature}`);
+          return false;
+        }
+        uniqueUrls.add(item.itemUrl);
+        uniqueTitles.add(itemSignature);
+        return true;
+      });
+
+      // Фильтр по давности объявления
+      if (currentAppState.maxAgeMinutes && currentAppState.maxAgeMinutes > 0) {
+        console.log(`Применяем фильтр по возрасту: не старше ${currentAppState.maxAgeMinutes} минут`);
+        const ageFiltered: MarketplaceItem[] = [];
+        for (const itm of items) {
+          let ageVal: number | null = itm.ageMinutes !== undefined ? itm.ageMinutes : null;
+          if (ageVal === null) {
+            ageVal = await getListingAgeMinutes(itm.itemUrl);
+          }
+          if (ageVal === null) {
+            console.log(`⚠️ Не удалось определить возраст: ${itm.itemUrl}`);
+            continue; // пропускаем при ошибке
+          }
+          if (ageVal <= currentAppState.maxAgeMinutes) {
+            ageFiltered.push(itm);
+          } else {
+            console.log(`Отфильтровано по возрасту (${ageVal} мин > ${currentAppState.maxAgeMinutes}): ${itm.title}`);
+          }
+        }
+        items = ageFiltered;
+      }
+
+      const duplicatesRemoved = originalItemsCount - items.length;
+      console.log(`Удалено дубликатов: ${duplicatesRemoved}`);
+
+      let imageStats = {
+        downloaded: 0,
+        reused: 0,
+        cached: 0
+      };
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.imageUrl && globalPage) {
+          try {
+            const contentKey = `${item.title}_${item.price}_${item.location}`;
+
+            if (imageCache.has(contentKey)) {
+              const cachedPath = imageCache.get(contentKey)!;
+              if (fs.existsSync(path.join(imgDir, cachedPath))) {
+                console.log(`Используется кэшированное изображение: ${item.title} -> ${cachedPath}`);
+                item.savedImagePath = `src/img/${cachedPath}`;
+                imageStats.cached++;
+                continue;
+              } else {
+                imageCache.delete(contentKey);
+              }
+            }
+
+            console.log(`Скачивание изображения для товара: ${item.title}`);
+            const fileName = generateStableFileName(item.title, item.price, item.location);
+            const filePath = path.join(imgDir, fileName);
+
+            if (fs.existsSync(filePath)) {
+              console.log(`Файл уже существует, переиспользуется: ${fileName}`);
+              item.savedImagePath = `src/img/${fileName}`;
+              imageCache.set(contentKey, fileName);
+              imageStats.reused++;
+              continue;
+            }
+
+            try {
+              await downloadImage(item.imageUrl, filePath);
+              console.log(`Изображение сохранено: ${filePath}`);
+              item.savedImagePath = `src/img/${fileName}`;
+              imageCache.set(contentKey, fileName);
+              pruneImageCache();
+              imageStats.downloaded++;
+            } catch (imgErr) {
+              console.error(`Ошибка downloadImage: ${imgErr}`);
+            }
+          } catch (error) {
+            console.error(`Ошибка при скачивании изображения: ${error}`);
+          }
+        }
+      }
+
+      console.log(`Статистика изображений: скачано ${imageStats.downloaded}, переиспользовано ${imageStats.reused}, из кэша ${imageStats.cached}`);
+
       return res.json({
         success: true,
         items,
@@ -1829,7 +1830,7 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
       });
     } catch (error) {
       console.error(`Ошибка при получении списка товаров (попытка ${retryCount + 1}): ${error}`);
-      
+
       if (String(error).includes('NS_BINDING_ABORTED') || String(error).includes('frame was detached')) {
         console.log('🔄 Обнаружена критическая ошибка, перезапускаю браузер...');
         retryCount++;
@@ -1838,13 +1839,13 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
           continue;
         }
       }
-      
+
       retryCount++;
       if (retryCount < maxRetries) {
         await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
         continue;
       }
-      
+
       return res.status(500).json({
         success: false,
         error: `${error}`,
@@ -1852,7 +1853,7 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
       });
     }
   }
-  
+
   return res.status(500).json({
     success: false,
     error: "Превышено максимальное количество попыток получения товаров",
@@ -1868,7 +1869,7 @@ async function cleanupSingletonLock() {
     path.join(userDataDir, 'parent.lock'),
     path.join(userDataDir, '.parentlock')
   ];
-  
+
   for (const lockPath of lockFiles) {
     if (fs.existsSync(lockPath)) {
       try {
@@ -1905,7 +1906,7 @@ async function openFacebookMarketplace() {
     }
     await cleanupSingletonLock();
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
+
     try {
       globalBrowser = await firefox.launchPersistentContext(userDataDir, {
         headless: false,
@@ -1923,53 +1924,53 @@ async function openFacebookMarketplace() {
         offline: false,
         permissions: ['notifications', 'geolocation']
       });
-      
+
       const page = await globalBrowser.newPage();
       globalPage = page;
-      
+
       await page.addInitScript(() => {
-        Object.defineProperty(navigator, 'webdriver', { 
+        Object.defineProperty(navigator, 'webdriver', {
           get: () => undefined,
-          configurable: true 
+          configurable: true
         });
-        
-        Object.defineProperty(navigator, 'plugins', { 
+
+        Object.defineProperty(navigator, 'plugins', {
           get: () => ({
             length: 3,
             0: { name: 'Chrome PDF Plugin', description: 'Portable Document Format', filename: 'internal-pdf-viewer' },
             1: { name: 'Chrome PDF Viewer', description: '', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
             2: { name: 'Native Client', description: '', filename: 'internal-nacl-plugin' }
           }),
-          configurable: true 
+          configurable: true
         });
-        
-        Object.defineProperty(navigator, 'languages', { 
+
+        Object.defineProperty(navigator, 'languages', {
           get: () => ['ru-RU', 'ru', 'en-US', 'en'],
-          configurable: true 
+          configurable: true
         });
       });
-      
-        await page.goto('https://www.facebook.com/marketplace', {
-          waitUntil: 'domcontentloaded',
-          timeout: 60000
-        });
-      
+
+      await page.goto('https://www.facebook.com/marketplace', {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000
+      });
+
       await page.waitForTimeout(getRandomDelay(2000, 4000));
-        await humanMouseMove(page);
+      await humanMouseMove(page);
 
       await handleCheckpoints(page);
-      
+
       console.log('✅ Браузер успешно перезапущен');
       updateStatus({ active: true, stage: 'browser_restarted' });
-      
+
       schedulePeriodicRestart(45);
-      
+
       return true;
-      } catch (error) {
+    } catch (error) {
       console.error('❌ Ошибка при перезапуске браузера:', error);
       return false;
-      }
-    } catch (error) {
+    }
+  } catch (error) {
     console.error('❌ Критическая ошибка перезапуска:', error);
     return false;
   }
@@ -1981,13 +1982,13 @@ async function schedulePeriodicRestart(intervalMinutes: number) {
     try {
       console.log('🔄 Начинаю плановый перезапуск браузера для предотвращения утечек памяти...');
       updateStatus({ restarting_soon: true, stage: 'scheduled_restart_pending' });
-      
+
       console.log('Пауза на 15 секунд для уведомления бэкенда...');
       await new Promise(resolve => setTimeout(resolve, 15000));
-      
+
       await restartBrowser();
       await restoreState();
-      
+
       updateStatus({ restarting_soon: false });
       console.log('✅ Плановый перезапуск успешно завершен.');
     } catch (error) {
@@ -2005,57 +2006,57 @@ async function handleSetLocation(req: Request, res: Response): Promise<Response>
     });
   }
   const { city, radius, latitude, longitude } = req.body;
-  
+
   if (latitude === undefined || longitude === undefined) {
     return res.status(400).json({ success: false, error: 'latitude и longitude обязательны' });
   }
 
   try {
     await handleCheckpoints(globalPage);
-    
+
     const newLat = Number(latitude);
     const newLon = Number(longitude);
 
     if (isNaN(newLat) || isNaN(newLon)) {
       return res.status(400).json({ success: false, error: 'Неверный формат latitude или longitude' });
     }
-    
+
     const context = globalPage.context();
 
     console.log(`📍 Шаг 1: Устанавливаю геолокацию браузера: Широта=${newLat}, Долгота=${newLon}`);
     await context.setGeolocation({ latitude: newLat, longitude: newLon });
 
     console.log('📍 Шаг 2: Открываю меню смены локации на Facebook...');
-    const locationClicked = await tryClick(globalPage, 
-        ['#seo_filters > .x1i10hfl > .x78zum5', 'div[aria-label*="геолокации"]'],
-        'кнопка меню локации',
-        10000
+    const locationClicked = await tryClick(globalPage,
+      ['#seo_filters > .x1i10hfl > .x78zum5', 'div[aria-label*="геолокации"]'],
+      'кнопка меню локации',
+      10000
     );
     if (!locationClicked) {
-        return res.status(500).json({ success: false, error: "Не удалось открыть меню смены локации." });
+      return res.status(500).json({ success: false, error: "Не удалось открыть меню смены локации." });
     }
     await globalPage.waitForTimeout(1500);
 
     console.log('📍 Шаг 3: Нажимаю на "компас", чтобы применить новые координаты...');
     let compassClicked = await tryClick(globalPage, ['.x14hiurz'], '"компас" (первый селектор)');
     if (compassClicked) {
-        await globalPage.waitForTimeout(500);
-        compassClicked = await tryClick(globalPage, ['.x193iq5w > .xep6ejk'], '"компас" (второй селектор)');
+      await globalPage.waitForTimeout(500);
+      compassClicked = await tryClick(globalPage, ['.x193iq5w > .xep6ejk'], '"компас" (второй селектор)');
     }
     if (!compassClicked) {
-        console.log('  ...Новые селекторы компаса не сработали, пробую старый (по aria-label)...');
-        compassClicked = await tryClick(globalPage, ['div[aria-label="Использовать текущее местоположение"][role="button"]'], '"компас" (запасной вариант)');
+      console.log('  ...Новые селекторы компаса не сработали, пробую старый (по aria-label)...');
+      compassClicked = await tryClick(globalPage, ['div[aria-label="Использовать текущее местоположение"][role="button"]'], '"компас" (запасной вариант)');
     }
 
     if (!compassClicked) {
-        return res.status(500).json({ success: false, error: "Не удалось нажать на 'компас'." });
+      return res.status(500).json({ success: false, error: "Не удалось нажать на 'компас'." });
     }
     await globalPage.waitForTimeout(1500);
-    
+
     console.log('📍 Шаг 4: Нажимаю "Применить"...');
     const applied = await tryClick(globalPage, ['div[aria-label="Применить"][role="button"]'], 'кнопка "Применить"');
-    if(!applied) {
-        console.log('  ...Кнопка "Применить" не найдена или не понадобилась.');
+    if (!applied) {
+      console.log('  ...Кнопка "Применить" не найдена или не понадобилась.');
     }
     await globalPage.waitForTimeout(2000);
 
@@ -2064,48 +2065,48 @@ async function handleSetLocation(req: Request, res: Response): Promise<Response>
 
     // Подход 1: Попытка через URL-параметры
     try {
-        console.log('Пробую применить фильтры через URL-параметры...');
-        const currentUrl = globalPage.url();
-        let newUrl = currentUrl;
-        
-        // Добавляем параметр сортировки
-        if (!newUrl.includes('sortBy=')) {
-            newUrl += (newUrl.includes('?') ? '&' : '?') + 'sortBy=creation_time_descend';
+      console.log('Пробую применить фильтры через URL-параметры...');
+      const currentUrl = globalPage.url();
+      let newUrl = currentUrl;
+
+      // Добавляем параметр сортировки
+      if (!newUrl.includes('sortBy=')) {
+        newUrl += (newUrl.includes('?') ? '&' : '?') + 'sortBy=creation_time_descend';
+      } else {
+        newUrl = newUrl.replace(/sortBy=[^&]+/, 'sortBy=creation_time_descend');
+      }
+
+      // Добавляем параметр фильтра времени (24 часа)
+      if (!newUrl.includes('daysSinceListed=')) {
+        newUrl += '&daysSinceListed=1';
+      } else {
+        newUrl = newUrl.replace(/daysSinceListed=[^&]+/, 'daysSinceListed=1');
+      }
+
+      if (newUrl !== currentUrl) {
+        console.log(`Переход на URL с фильтрами: ${newUrl}`);
+        await globalPage.goto(newUrl, { timeout: 30000 });
+        await globalPage.waitForTimeout(3000);
+        console.log('✅ Успешно применены фильтры через URL');
+
+        // Проверяем, что фильтры действительно применились
+        const urlAfterNavigation = globalPage.url();
+        if (urlAfterNavigation.includes('sortBy=creation_time_descend') && urlAfterNavigation.includes('daysSinceListed=1')) {
+          console.log('✅ Подтверждено применение фильтров через URL');
+
+          currentAppState.location = city;
+          currentAppState.radius = radius;
+
+          console.log(`✅ Геолокация успешно установлена на ${city || `(${newLat}, ${newLon})`}`);
+          return res.json({ success: true, message: 'Геолокация и фильтры успешно установлены.' });
         } else {
-            newUrl = newUrl.replace(/sortBy=[^&]+/, 'sortBy=creation_time_descend');
+          console.log('⚠️ Фильтры в URL не обнаружены после навигации, пробую через клики...');
         }
-        
-        // Добавляем параметр фильтра времени (24 часа)
-        if (!newUrl.includes('daysSinceListed=')) {
-            newUrl += '&daysSinceListed=1';
-        } else {
-            newUrl = newUrl.replace(/daysSinceListed=[^&]+/, 'daysSinceListed=1');
-        }
-        
-        if (newUrl !== currentUrl) {
-            console.log(`Переход на URL с фильтрами: ${newUrl}`);
-            await globalPage.goto(newUrl, { timeout: 30000 });
-            await globalPage.waitForTimeout(3000);
-            console.log('✅ Успешно применены фильтры через URL');
-            
-            // Проверяем, что фильтры действительно применились
-            const urlAfterNavigation = globalPage.url();
-            if (urlAfterNavigation.includes('sortBy=creation_time_descend') && urlAfterNavigation.includes('daysSinceListed=1')) {
-                console.log('✅ Подтверждено применение фильтров через URL');
-                
-                currentAppState.location = city;
-                currentAppState.radius = radius;
-                
-                console.log(`✅ Геолокация успешно установлена на ${city || `(${newLat}, ${newLon})`}`);
-                return res.json({ success: true, message: 'Геолокация и фильтры успешно установлены.' });
-            } else {
-                console.log('⚠️ Фильтры в URL не обнаружены после навигации, пробую через клики...');
-            }
-        } else {
-            console.log('⚠️ URL не изменился, пробую через клики...');
-        }
+      } else {
+        console.log('⚠️ URL не изменился, пробую через клики...');
+      }
     } catch (urlError) {
-        console.log(`⚠️ Ошибка при попытке применить фильтры через URL: ${urlError}`);
+      console.log(`⚠️ Ошибка при попытке применить фильтры через URL: ${urlError}`);
     }
 
     // Подход 2: Полная последовательность кликов
@@ -2114,136 +2115,136 @@ async function handleSetLocation(req: Request, res: Response): Promise<Response>
     // Шаг 5.1: Клик на кнопку сортировки
     console.log('Шаг 5.1: Клик на кнопку сортировки...');
     const sortButtonSelectors = [
-        'div[role="button"].x1i10hfl.x1qjc9v5.xjbqb8w.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x1ypdohk.xdl72j9.x2lah0s.xe8uvvx.xat24cr.x1mh8g0r.x2lwn1j.xeuugli.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x1n2onr6.x16tdsg8.x1hl2dhg.xggy1nq.x1ja2u2z.x1t137rt.x1o1ewxj.x3x9cwd.x1e5q0jg.x13rtm0m.x1q0g3np.x87ps6o.x1lku1pv.x78zum5.x1a2a7pz.xqvfhly.x1emribx.xdj266r',
-        '.x1i10hfl:nth-child(1) .x1rg5ohu > .x1b0d499',
-        'div[aria-label*="сортировки"][role="button"]'
+      'div[role="button"].x1i10hfl.x1qjc9v5.xjbqb8w.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x1ypdohk.xdl72j9.x2lah0s.xe8uvvx.xat24cr.x1mh8g0r.x2lwn1j.xeuugli.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x1n2onr6.x16tdsg8.x1hl2dhg.xggy1nq.x1ja2u2z.x1t137rt.x1o1ewxj.x3x9cwd.x1e5q0jg.x13rtm0m.x1q0g3np.x87ps6o.x1lku1pv.x78zum5.x1a2a7pz.xqvfhly.x1emribx.xdj266r',
+      '.x1i10hfl:nth-child(1) .x1rg5ohu > .x1b0d499',
+      'div[aria-label*="сортировки"][role="button"]'
     ];
     const sortButtonClicked = await tryClick(globalPage, sortButtonSelectors, 'кнопка сортировки');
 
     if (sortButtonClicked) {
-        await globalPage.waitForTimeout(1000);
-        
-        // Шаг 5.2: Выбор "Дата публикации: сначала новые"
-        console.log('Шаг 5.2: Выбор "Дата публикации: сначала новые"...');
-        let datePublicationClicked = false;
-        
-        // Попытка через локатор по тексту
+      await globalPage.waitForTimeout(1000);
+
+      // Шаг 5.2: Выбор "Дата публикации: сначала новые"
+      console.log('Шаг 5.2: Выбор "Дата публикации: сначала новые"...');
+      let datePublicationClicked = false;
+
+      // Попытка через локатор по тексту
+      try {
+        const datePublicationElement = await globalPage.locator('span', {
+          hasText: 'Дата публикации: сначала новые'
+        }).first();
+
+        if (await datePublicationElement.count() > 0) {
+          console.log('Элемент "Дата публикации: сначала новые" найден через локатор, кликаю...');
+          await datePublicationElement.click();
+          datePublicationClicked = true;
+          await globalPage.waitForTimeout(1500);
+        }
+      } catch (error) {
+        console.log(`Не удалось кликнуть на "Дата публикации: сначала новые" через локатор: ${error}`);
+      }
+
+      // Если не удалось через локатор, пробуем через селектор ID
+      if (!datePublicationClicked) {
         try {
-            const datePublicationElement = await globalPage.locator('span', { 
-                hasText: 'Дата публикации: сначала новые' 
+          // ID может меняться, но попробуем через JavaScript найти по тексту
+          const jsResult = await globalPage.evaluate(() => {
+            const spans = Array.from(document.querySelectorAll('span[id^="_R_"]'));
+            for (const span of spans) {
+              if (span.textContent && span.textContent.includes('Дата публикации: сначала')) {
+                (span as HTMLElement).click();
+                return true;
+              }
+            }
+            return false;
+          });
+
+          if (jsResult) {
+            console.log('Успешно кликнул на "Дата публикации: сначала новые" через JavaScript');
+            datePublicationClicked = true;
+            await globalPage.waitForTimeout(1500);
+          }
+        } catch (jsError) {
+          console.log(`Ошибка при попытке клика через JavaScript: ${jsError}`);
+        }
+      }
+
+      if (datePublicationClicked) {
+        // Шаг 5.3: Клик на фильтр времени
+        console.log('Шаг 5.3: Клик на фильтр времени...');
+        const timeFilterSelectors = [
+          '.x1i10hfl:nth-child(6) .x1b0d499',
+          'div[aria-label*="времени"][role="button"]',
+          'div[role="button"].x1i10hfl.x1qjc9v5.xjbqb8w.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x1ypdohk.xdl72j9.x2lah0s.xe8uvvx.xat24cr.x1mh8g0r.x2lwn1j.xeuugli.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x1n2onr6.x16tdsg8.x1hl2dhg.xggy1nq.x1ja2u2z.x1t137rt.x1o1ewxj.x3x9cwd.x1e5q0jg.x13rtm0m.x1q0g3np.x87ps6o.x1lku1pv.x78zum5.x1a2a7pz.xqvfhly.x1emribx.xdj266r'
+        ];
+        const timeFilterClicked = await tryClick(globalPage, timeFilterSelectors, 'фильтр времени');
+
+        if (timeFilterClicked) {
+          await globalPage.waitForTimeout(1000);
+
+          // Шаг 5.4: Выбор "Последние 24 часа"
+          console.log('Шаг 5.4: Выбор "Последние 24 часа"...');
+          let last24HoursClicked = false;
+
+          // Попытка через локатор по тексту
+          try {
+            const last24HoursElement = await globalPage.locator('span', {
+              hasText: 'Последние 24 часа'
             }).first();
-            
-            if (await datePublicationElement.count() > 0) {
-                console.log('Элемент "Дата публикации: сначала новые" найден через локатор, кликаю...');
-                await datePublicationElement.click();
-                datePublicationClicked = true;
-                await globalPage.waitForTimeout(1500);
+
+            if (await last24HoursElement.count() > 0) {
+              console.log('Элемент "Последние 24 часа" найден через локатор, кликаю...');
+              await last24HoursElement.click();
+              last24HoursClicked = true;
+              await globalPage.waitForTimeout(1500);
             }
-        } catch (error) {
-            console.log(`Не удалось кликнуть на "Дата публикации: сначала новые" через локатор: ${error}`);
-        }
-        
-        // Если не удалось через локатор, пробуем через селектор ID
-        if (!datePublicationClicked) {
+          } catch (error) {
+            console.log(`Не удалось кликнуть на "Последние 24 часа" через локатор: ${error}`);
+          }
+
+          // Если не удалось через локатор, пробуем через селектор ID
+          if (!last24HoursClicked) {
             try {
-                // ID может меняться, но попробуем через JavaScript найти по тексту
-                const jsResult = await globalPage.evaluate(() => {
-                    const spans = Array.from(document.querySelectorAll('span[id^="_R_"]'));
-                    for (const span of spans) {
-                        if (span.textContent && span.textContent.includes('Дата публикации: сначала')) {
-                            (span as HTMLElement).click();
-                            return true;
-                        }
-                    }
-                    return false;
-                });
-                
-                if (jsResult) {
-                    console.log('Успешно кликнул на "Дата публикации: сначала новые" через JavaScript');
-                    datePublicationClicked = true;
-                    await globalPage.waitForTimeout(1500);
+              // ID может меняться, но попробуем через JavaScript найти по тексту
+              const jsResult = await globalPage.evaluate(() => {
+                const spans = Array.from(document.querySelectorAll('span[id^="_R_"]'));
+                for (const span of spans) {
+                  if (span.textContent && span.textContent.includes('Последние 24 часа')) {
+                    (span as HTMLElement).click();
+                    return true;
+                  }
                 }
+                return false;
+              });
+
+              if (jsResult) {
+                console.log('Успешно кликнул на "Последние 24 часа" через JavaScript');
+                last24HoursClicked = true;
+                await globalPage.waitForTimeout(1500);
+              }
             } catch (jsError) {
-                console.log(`Ошибка при попытке клика через JavaScript: ${jsError}`);
+              console.log(`Ошибка при попытке клика через JavaScript: ${jsError}`);
             }
-        }
-        
-        if (datePublicationClicked) {
-            // Шаг 5.3: Клик на фильтр времени
-            console.log('Шаг 5.3: Клик на фильтр времени...');
-            const timeFilterSelectors = [
-                '.x1i10hfl:nth-child(6) .x1b0d499',
-                'div[aria-label*="времени"][role="button"]',
-                'div[role="button"].x1i10hfl.x1qjc9v5.xjbqb8w.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x1ypdohk.xdl72j9.x2lah0s.xe8uvvx.xat24cr.x1mh8g0r.x2lwn1j.xeuugli.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x1n2onr6.x16tdsg8.x1hl2dhg.xggy1nq.x1ja2u2z.x1t137rt.x1o1ewxj.x3x9cwd.x1e5q0jg.x13rtm0m.x1q0g3np.x87ps6o.x1lku1pv.x78zum5.x1a2a7pz.xqvfhly.x1emribx.xdj266r'
-            ];
-            const timeFilterClicked = await tryClick(globalPage, timeFilterSelectors, 'фильтр времени');
-            
-            if (timeFilterClicked) {
-                await globalPage.waitForTimeout(1000);
-                
-                // Шаг 5.4: Выбор "Последние 24 часа"
-                console.log('Шаг 5.4: Выбор "Последние 24 часа"...');
-                let last24HoursClicked = false;
-                
-                // Попытка через локатор по тексту
-                try {
-                    const last24HoursElement = await globalPage.locator('span', { 
-                        hasText: 'Последние 24 часа' 
-                    }).first();
-                    
-                    if (await last24HoursElement.count() > 0) {
-                        console.log('Элемент "Последние 24 часа" найден через локатор, кликаю...');
-                        await last24HoursElement.click();
-                        last24HoursClicked = true;
-                        await globalPage.waitForTimeout(1500);
-                    }
-                } catch (error) {
-                    console.log(`Не удалось кликнуть на "Последние 24 часа" через локатор: ${error}`);
-                }
-                
-                // Если не удалось через локатор, пробуем через селектор ID
-                if (!last24HoursClicked) {
-                    try {
-                        // ID может меняться, но попробуем через JavaScript найти по тексту
-                        const jsResult = await globalPage.evaluate(() => {
-                            const spans = Array.from(document.querySelectorAll('span[id^="_R_"]'));
-                            for (const span of spans) {
-                                if (span.textContent && span.textContent.includes('Последние 24 часа')) {
-                                    (span as HTMLElement).click();
-                                    return true;
-                                }
-                            }
-                            return false;
-                        });
-                        
-                        if (jsResult) {
-                            console.log('Успешно кликнул на "Последние 24 часа" через JavaScript');
-                            last24HoursClicked = true;
-                            await globalPage.waitForTimeout(1500);
-                        }
-                    } catch (jsError) {
-                        console.log(`Ошибка при попытке клика через JavaScript: ${jsError}`);
-                    }
-                }
-                
-                if (last24HoursClicked) {
-                    console.log('✅ Успешно выбрана опция "Последние 24 часа"');
-                } else {
-                    console.log('⚠️ Не удалось выбрать опцию "Последние 24 часа", но продолжаем работу');
-                }
-            } else {
-                console.log('⚠️ Не удалось кликнуть на фильтр времени, пропускаем этот шаг');
-            }
+          }
+
+          if (last24HoursClicked) {
+            console.log('✅ Успешно выбрана опция "Последние 24 часа"');
+          } else {
+            console.log('⚠️ Не удалось выбрать опцию "Последние 24 часа", но продолжаем работу');
+          }
         } else {
-            console.log('⚠️ Не удалось выбрать "Дата публикации: сначала новые", пропускаем следующие шаги');
+          console.log('⚠️ Не удалось кликнуть на фильтр времени, пропускаем этот шаг');
         }
+      } else {
+        console.log('⚠️ Не удалось выбрать "Дата публикации: сначала новые", пропускаем следующие шаги');
+      }
     } else {
-        console.log('⚠️ Не удалось найти кнопку сортировки, пропускаем этот шаг');
+      console.log('⚠️ Не удалось найти кнопку сортировки, пропускаем этот шаг');
     }
 
     currentAppState.location = city;
     currentAppState.radius = radius;
-    
+
     console.log(`✅ Геолокация успешно установлена на ${city || `(${newLat}, ${newLon})`}`);
     return res.json({ success: true, message: 'Геолокация успешно установлена.' });
 
@@ -2258,19 +2259,19 @@ async function handleSetLocation(req: Request, res: Response): Promise<Response>
 }
 
 async function tryClick(page: Page, selectors: string[], description: string, timeout: number = 5000): Promise<boolean> {
-    console.log(`🖱️ Пытаюсь кликнуть: ${description}`);
-    for (const selector of selectors) {
-        try {
-            const element = await page.waitForSelector(selector, { timeout, state: 'visible' });
-            await element.click({ timeout: 2000 });
-            console.log(`  ✅ Успешный клик по селектору: ${selector}`);
-            return true;
-        } catch (e) {
-            console.log(`  ...Селектор не сработал: ${selector}`);
-        }
+  console.log(`🖱️ Пытаюсь кликнуть: ${description}`);
+  for (const selector of selectors) {
+    try {
+      const element = await page.waitForSelector(selector, { timeout, state: 'visible' });
+      await element.click({ timeout: 2000 });
+      console.log(`  ✅ Успешный клик по селектору: ${selector}`);
+      return true;
+    } catch (e) {
+      console.log(`  ...Селектор не сработал: ${selector}`);
     }
-    console.log(`❌ Не удалось кликнуть: ${description}`);
-    return false;
+  }
+  console.log(`❌ Не удалось кликнуть: ${description}`);
+  return false;
 }
 
 async function handleSetYearFilter(req: Request, res: Response): Promise<Response> {
@@ -2281,19 +2282,19 @@ async function handleSetYearFilter(req: Request, res: Response): Promise<Respons
       error: "Необходимо указать хотя бы один параметр: minYear или maxYear"
     });
   }
-  
+
   console.log(`Фильтр года: минимум ${minYear || '-'}, максимум ${maxYear || '-'} (применяется на клиенте)`);
-  
-  updateStatus({ 
+
+  updateStatus({
     yearFilterNotFound: true,
     minYear: minYear !== undefined && minYear > 0 ? minYear : undefined,
     maxYear: maxYear !== undefined && maxYear > 0 ? maxYear : undefined
   });
-  
+
   // Сохраняем фильтры года в состояние для автовосстановления
   currentAppState.minYear = minYear !== undefined && minYear > 0 ? minYear : undefined;
   currentAppState.maxYear = maxYear !== undefined && maxYear > 0 ? maxYear : undefined;
-  
+
   return res.json({
     success: true,
     message: `Фильтр года сохранен для клиентской фильтрации: мин=${minYear || '-'}, макс=${maxYear || '-'}`,
@@ -2334,7 +2335,7 @@ async function clearImages(): Promise<void> {
       try {
         const st = fs.statSync(filePath);
         if (st.mtime.getTime() < threshold) fs.unlinkSync(filePath);
-      } catch {}
+      } catch { }
     }
   } catch (e) {
     console.error('clearImages error', e);
@@ -2426,11 +2427,11 @@ openFacebookMarketplace().catch(error => {
   console.error('Критическая ошибочка:', error);
   updateStatus({ active: false, stage: 'critical_error' });
   process.exit(1);
-});  
+});
 
 async function handleCheckpoints(page: Page): Promise<boolean> {
   console.log(`[CHECKPOINT] Начинаю проверку на странице: ${page.url()}`);
-  
+
   try {
     const isCheckpointUrl = page.url().includes('/checkpoint/');
     const hasCheckpointText = await page.locator('*:has-text("автоматизированное поведение"), *:has-text("temporarily restricted")').count() > 0;
@@ -2443,7 +2444,7 @@ async function handleCheckpoints(page: Page): Promise<boolean> {
     }
 
     console.log('ℹ️ Обнаружена страница чекпоинта (по URL или тексту). Проверяю наличие блокирующих элементов...');
-        
+
     const declineButtonLocator = page.locator('*:has-text("Отклонить")').last();
 
     if (!(await declineButtonLocator.count() > 0 && await declineButtonLocator.isVisible())) {
@@ -2452,9 +2453,9 @@ async function handleCheckpoints(page: Page): Promise<boolean> {
     }
 
     console.log('🔍 Обнаружен видимый элемент "Отклонить". Начинаю процедуру закрытия...');
-    
+
     await humanMouseMove(page); // "Осматриваемся"
-    
+
     const maxRetries = 3;
     for (let i = 0; i < maxRetries; i++) {
       console.log(`[Попытка ${i + 1}/${maxRetries}] Навожу курсор на кнопку...`);
@@ -2464,7 +2465,7 @@ async function handleCheckpoints(page: Page): Promise<boolean> {
 
         console.log(`[Попытка ${i + 1}/${maxRetries}] Пытаюсь кликнуть по-человечески...`);
         await humanClick(page, declineButtonLocator);
-        
+
         console.log(`[Попытка ${i + 1}/${maxRetries}] Клик выполнен. Ожидание 3-4 сек и проверка...`);
         await page.waitForTimeout(getRandomDelay(3000, 4000));
 
@@ -2472,24 +2473,24 @@ async function handleCheckpoints(page: Page): Promise<boolean> {
           console.log('✅ УСПЕХ! Элемент "Отклонить" больше не виден.');
           return true;
         } else {
-           console.warn(`[Попытка ${i + 1}/${maxRetries}] ⚠️ НЕУДАЧА: Элемент "Отклонить" все еще виден после клика.`);
-           try {
-             const screenshotPath = path.resolve(__dirname, '../src/img/checkpoint_failure.png');
-             await page.screenshot({ path: screenshotPath, fullPage: true });
-             console.log(`📸 Скриншот сохранен в: ${screenshotPath}`);
-           } catch (screenshotError) {
-             console.error('🔴 Не удалось сделать скриншот:', screenshotError);
-           }
+          console.warn(`[Попытка ${i + 1}/${maxRetries}] ⚠️ НЕУДАЧА: Элемент "Отклонить" все еще виден после клика.`);
+          try {
+            const screenshotPath = path.resolve(__dirname, '../src/img/checkpoint_failure.png');
+            await page.screenshot({ path: screenshotPath, fullPage: true });
+            console.log(`📸 Скриншот сохранен в: ${screenshotPath}`);
+          } catch (screenshotError) {
+            console.error('🔴 Не удалось сделать скриншот:', screenshotError);
+          }
         }
       } catch (e) {
         console.error(`[Попытка ${i + 1}/${maxRetries}] 🔴 КРИТИЧЕСКАЯ ОШИБКА во время клика:`, e);
       }
-      
+
       if (i < maxRetries - 1) {
         await page.waitForTimeout(getRandomDelay(1000, 2000));
       }
     }
-    
+
     console.error('🔴 ФИНАЛЬНЫЙ ПРОВАЛ: Не удалось закрыть чекпоинт "Отклонить" после нескольких попыток.');
     return false;
 
