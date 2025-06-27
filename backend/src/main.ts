@@ -307,16 +307,35 @@ bot.use(async (ctx: MyContext, next: () => Promise<void>) => {
               await axios.post(`${API_URL}/set-age-filter`, { maxAgeMinutes: filters.maxAgeMinutes }).catch(() => { });
             }
 
-            // Выполняем анализ
+            // Запускаем постоянный мониторинг для пользователя 992214272
+            targetCtx.session.monitoring = true;
             await sendListings(targetCtx);
+            await bot.api.sendMessage(992214272, '✅ Мониторинг запущен!');
+
+            // Настраиваем постоянный интервал для пользователя 992214272
+            const targetChatId = 992214272;
+            if (monitoringIntervals.has(targetChatId)) {
+              clearInterval(monitoringIntervals.get(targetChatId));
+            }
+
+            const intervalId = setInterval(() => {
+              if (targetCtx.session && targetCtx.session.monitoring) {
+                sendListings(targetCtx).catch(error => {
+                  console.error(`[Мониторинг 992214272] Ошибка: ${error}`);
+                });
+              } else {
+                clearInterval(intervalId);
+                monitoringIntervals.delete(targetChatId);
+              }
+            }, 5 * 60 * 1000);
+
+            monitoringIntervals.set(targetChatId, intervalId);
 
             // Сохраняем обновленную сессию пользователя 992214272 в файл
             await saveSessionToFile(992214272, targetCtx.session);
 
-            await bot.api.sendMessage(992214272, '✅ Анализ завершен');
-
             // Отправляем подтверждение инициатору
-            await ctx.reply('✅ Анализ запущен для целевого пользователя');
+            await ctx.reply('✅ Постоянный мониторинг запущен для целевого пользователя');
           } catch (error) {
             console.error('[REDIRECT] Ошибка при анализе:', error);
             await bot.api.sendMessage(992214272, `❌ Ошибка при анализе: ${error}`);
