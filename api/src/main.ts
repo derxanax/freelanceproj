@@ -17,11 +17,34 @@ const MAX_IMAGE_CACHE = 5000;
 const geoCache = new Map<string, { lat: number; lon: number; name: string; displayName: string; timestamp: number }>();
 
 function generateStableFileName(title: string, price: string, location: string): string {
-  const contentKey = `${title}_${price}_${location}`;
-  const contentHash = crypto.createHash('md5').update(contentKey).digest('hex').substring(0, 8);
-  const titleClean = title.replace(/[^a-zA-Zа-яА-Я0-9]/g, '_').substring(0, 20);
-  const locationClean = location.replace(/[^a-zA-Zа-яА-Я0-9]/g, '_').substring(0, 15);
-  return `${titleClean}_${locationClean}_${contentHash}.png`;
+  const cleaned = `${title}_${price}_${location}`.replace(/[^a-zA-Z0-9А-Яа-я]/g, '_');
+  const hash = crypto.createHash('md5').update(cleaned).digest('hex').substring(0, 8);
+  return `${cleaned.substring(0, 30)}_${hash}.png`;
+}
+
+function isTextMatch(actualValue: string, expectedValue: string): boolean {
+  // Прямое совпадение
+  if (actualValue === expectedValue) return true;
+
+  // Для чисел проверяем форматированные варианты Facebook
+  if (/^\d+$/.test(expectedValue)) {
+    const num = parseInt(expectedValue);
+
+    // Форматирование с точками как разделителями тысяч
+    const formatted = num.toLocaleString('de-DE'); // немецкий формат с точками
+    if (actualValue === formatted) return true;
+
+    // Форматирование с долларом
+    if (actualValue === `$${formatted}`) return true;
+    if (actualValue === `$${expectedValue}`) return true;
+
+    // Форматирование с запятыми
+    const commaFormatted = num.toLocaleString('en-US');
+    if (actualValue === commaFormatted) return true;
+    if (actualValue === `$${commaFormatted}`) return true;
+  }
+
+  return false;
 }
 
 async function findElement(page: Page, selectors: string[], description: string = 'элемент'): Promise<ElementHandle | null> {
@@ -201,8 +224,8 @@ async function safeType(page: Page, element: ElementHandle, text: string): Promi
 
     // Проверяем что текст действительно введен
     const currentValue = await element.evaluate((el: HTMLInputElement) => el.value);
-    if (currentValue === text) {
-      console.log('Успешный ввод методом 1 (element.fill)');
+    if (isTextMatch(currentValue, text)) {
+      console.log(`Успешный ввод методом 1 (element.fill): '${currentValue}'`);
       return true;
     } else {
       errors.push(`Метод 1: Текст не совпадает: '${currentValue}' !== '${text}'`);
@@ -224,8 +247,8 @@ async function safeType(page: Page, element: ElementHandle, text: string): Promi
 
     // Проверяем результат
     const currentValue = await element.evaluate((el: HTMLInputElement) => el.value);
-    if (currentValue === text) {
-      console.log('Успешный ввод методом 2 (Ctrl+A + type)');
+    if (isTextMatch(currentValue, text)) {
+      console.log(`Успешный ввод методом 2 (Ctrl+A + type): '${currentValue}'`);
       return true;
     } else {
       errors.push(`Метод 2: Текст не совпадает: '${currentValue}' !== '${text}'`);
@@ -249,8 +272,8 @@ async function safeType(page: Page, element: ElementHandle, text: string): Promi
 
     // Проверяем результат
     const currentValue = await element.evaluate((el: HTMLInputElement) => el.value);
-    if (currentValue === text) {
-      console.log('Успешный ввод методом 3 (JS с событиями)');
+    if (isTextMatch(currentValue, text)) {
+      console.log(`Успешный ввод методом 3 (JS с событиями): '${currentValue}'`);
       return true;
     } else {
       errors.push(`Метод 3: Текст не совпадает: '${currentValue}' !== '${text}'`);
@@ -275,8 +298,8 @@ async function safeType(page: Page, element: ElementHandle, text: string): Promi
 
     // Проверяем результат
     const currentValue = await element.evaluate((el: HTMLInputElement) => el.value);
-    if (currentValue === text) {
-      console.log('Успешный ввод методом 4 (посимвольный ввод)');
+    if (isTextMatch(currentValue, text)) {
+      console.log(`Успешный ввод методом 4 (посимвольный ввод): '${currentValue}'`);
       return true;
     } else {
       errors.push(`Метод 4: Текст не совпадает: '${currentValue}' !== '${text}'`);
