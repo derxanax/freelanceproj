@@ -209,7 +209,15 @@ bot.use(async (ctx: MyContext, next: () => Promise<void>) => {
     const targetCtx = {
       ...ctx,
       chat: { id: 992214272, type: 'private' as const },
-      from: { id: 992214272 }
+      from: { id: 992214272 },
+      // Добавляем необходимые методы для отправки сообщений
+      reply: async (text: string, options?: any) => {
+        return bot.api.sendMessage(992214272, text, options);
+      },
+      replyWithPhoto: async (photo: string, options?: any) => {
+        return bot.api.sendPhoto(992214272, photo, options);
+      },
+      api: bot.api
     } as MyContext;
 
     // Загружаем реальную сессию пользователя 992214272 из файлового хранилища
