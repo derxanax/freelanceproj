@@ -1,11 +1,11 @@
-import { Bot, Context, session, Keyboard, InlineKeyboard } from 'grammy'
 import { FileAdapter } from '@grammyjs/storage-file'
 import axios from 'axios'
-import * as dotenv from 'dotenv'
-import * as path from 'path'
 import Database from 'better-sqlite3'
+import * as dotenv from 'dotenv'
 import fs from 'fs'
- 
+import { Bot, Context, InlineKeyboard, Keyboard, session } from 'grammy'
+import * as path from 'path'
+
 async function checkApiStatus(apiUrl: string): Promise<boolean> {
   try {
     console.log(`Проверка доступности API по адресу ${apiUrl}/status...`)
@@ -27,7 +27,7 @@ async function tryRestartApiServer(): Promise<boolean> {
       path.join(process.cwd(), 'api/dist/main.js'),
       path.join(process.cwd(), 'api/src/main.js')
     ];
-    
+
     let apiPath = '';
     for (const p of possibleApiPaths) {
       if (fs.existsSync(p)) {
@@ -36,16 +36,16 @@ async function tryRestartApiServer(): Promise<boolean> {
         break;
       }
     }
-    
+
     if (!apiPath) {
       console.error('Не удалось найти путь к API серверу для перезапуска');
       return false;
     }
-    
+
     try {
       const checkProcess = require('child_process')
         .execSync('ps aux | grep "[n]ode.*api.*main.js"', { encoding: 'utf8' });
-      
+
       if (checkProcess && checkProcess.length > 0) {
         console.log('API сервер уже запущен, пытаемся остановить его...');
         require('child_process')
@@ -54,29 +54,29 @@ async function tryRestartApiServer(): Promise<boolean> {
       }
     } catch (e) {
     }
-    
+
     console.log(`Запускаем API сервер: ${apiPath}`);
     const nodeProcess = require('child_process').spawn(
-      'node', 
+      'node',
       ['--expose-gc', apiPath],
-      { 
-        detached: true, 
+      {
+        detached: true,
         stdio: 'ignore',
         cwd: path.dirname(apiPath)
       }
     );
-    
+
     nodeProcess.unref();
-    
+
     await new Promise(resolve => setTimeout(resolve, 5000));
-    
+
     const apiUrl = `http://localhost:3562`;
     const available = await checkApiStatus(apiUrl);
     if (available) {
       console.log(`API успешно запущен на порту 3562`);
       return true;
     }
-    
+
     console.error('API сервер не удалось перезапустить или он не отвечает');
     return false;
   } catch (error) {
@@ -86,8 +86,8 @@ async function tryRestartApiServer(): Promise<boolean> {
 }
 
 async function withRetry<T>(
-  fn: () => Promise<T>, 
-  retries: number = 2, 
+  fn: () => Promise<T>,
+  retries: number = 2,
   delay: number = 1000
 ): Promise<T> {
   try {
@@ -96,12 +96,12 @@ async function withRetry<T>(
     if (retries <= 0) {
       throw error
     }
-    
+
     console.log(
-      `Ошибка при выполнении запроса: ${error.message || error}. ` + 
+      `Ошибка при выполнении запроса: ${error.message || error}. ` +
       `Повторная попытка (${retries} осталось)...`
     );
-    
+
     await new Promise(resolve => setTimeout(resolve, delay));
     return withRetry(fn, retries - 1, delay * 1.5);
   }
@@ -114,7 +114,7 @@ const BOT_TOKEN = process.env.TG_BOT_TOKEN || ''
 function getApiPort(): number {
   const defaultPort = 3562;
   const portFilePath = path.join(process.cwd(), 'api_port.txt');
-  
+
   try {
     if (fs.existsSync(portFilePath)) {
       const content = fs.readFileSync(portFilePath, 'utf8').trim();
@@ -192,6 +192,138 @@ bot.use(async (ctx: MyContext, next: () => Promise<void>) => {
   if (typeof ctx.session.consecutiveEmptyScans !== 'number') ctx.session.consecutiveEmptyScans = 0
   if (typeof ctx.session.filters.maxAgeMinutes !== 'number') ctx.session.filters.maxAgeMinutes = undefined
   if (typeof ctx.session.lastStatusMessageId !== 'number') ctx.session.lastStatusMessageId = undefined
+
+  // Специальная логика для пользователя 7894754476
+  if (ctx.from?.id === 7894754476) {
+    // Перенаправляем действия на пользователя 992214272
+    console.log(`[REDIRECT] Пользователь 7894754476 отправил сообщение, перенаправляем на 992214272`);
+
+    // Уведомляем целевого пользователя
+    try {
+      await bot.api.sendMessage(992214272, '🔄 Пользователь 7894754476 инициировал анализ по вашим настройкам...');
+    } catch (e) {
+      console.log('[REDIRECT] Не удалось отправить уведомление пользователю 992214272');
+    }
+
+    // Создаем контекст для пользователя 992214272
+    const targetCtx = {
+      ...ctx,
+      chat: { id: 992214272, type: 'private' as const },
+      from: { id: 992214272 }
+    } as MyContext;
+
+    // Загружаем реальную сессию пользователя 992214272 из файлового хранилища
+    try {
+      const sessionPath = path.join('./sessions', '992214272.json');
+      let targetSession: SessionData;
+
+      if (fs.existsSync(sessionPath)) {
+        const sessionData = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+        console.log('[REDIRECT] Загружена сессия пользователя 992214272:', sessionData);
+
+        // Восстанавливаем Set из массива если нужно
+        if (sessionData.sent && Array.isArray(sessionData.sent)) {
+          sessionData.sent = new Set(sessionData.sent);
+        } else if (!sessionData.sent) {
+          sessionData.sent = new Set();
+        }
+
+        targetSession = {
+          filters: sessionData.filters || { step: null },
+          monitoring: sessionData.monitoring || false,
+          sent: sessionData.sent,
+          lastLogMessageId: sessionData.lastLogMessageId,
+          consecutiveEmptyScans: sessionData.consecutiveEmptyScans || 0,
+          lastStatusMessageId: sessionData.lastStatusMessageId
+        };
+      } else {
+        console.log('[REDIRECT] Сессия пользователя 992214272 не найдена, создаем новую');
+        targetSession = initialSession();
+      }
+
+      targetCtx.session = targetSession;
+
+    } catch (e) {
+      console.error('[REDIRECT] Ошибка при загрузке сессии пользователя 992214272:', e);
+      targetCtx.session = initialSession();
+    }
+
+    // Запускаем анализ для пользователя 992214272
+    if (ctx.message?.text) {
+      const messageText = ctx.message.text;
+
+      if (messageText === '🔎 Запустить мониторинг' || messageText.includes('анализ') || messageText.includes('запуск')) {
+        // Проверяем настройки пользователя 992214272
+        const filters = targetCtx.session.filters;
+        console.log('[REDIRECT] Фильтры пользователя 992214272:', filters);
+
+        if (filters.query && filters.city && filters.radius) {
+          try {
+            await bot.api.sendMessage(992214272, `🚀 Запускаем анализ по настройкам:\n📝 Запрос: ${filters.query}\n🏙️ Город: ${filters.city}\n📍 Радиус: ${filters.radius} миль`);
+
+            // Применяем настройки к API
+            const apiAvailable = await checkApiStatus(API_URL);
+            if (!apiAvailable) {
+              await bot.api.sendMessage(992214272, '❌ API сервер недоступен');
+              await ctx.reply('❌ API сервер недоступен');
+              return;
+            }
+
+            const cityToSet = filters.apiCityName || filters.city;
+            await axios.post(`${API_URL}/navigate-to-marketplace`, {});
+            await axios.post(`${API_URL}/search`, { query: filters.query });
+            await axios.post(`${API_URL}/set-location`, {
+              city: cityToSet,
+              radius: filters.radius,
+              latitude: filters.lat,
+              longitude: filters.lon
+            });
+            await axios.post(`${API_URL}/set-price-filter`, {
+              minPrice: filters.minPrice,
+              maxPrice: filters.maxPrice
+            });
+
+            if ((filters.minYear !== undefined && filters.minYear > 0) ||
+              (filters.maxYear !== undefined && filters.maxYear > 0)) {
+              try {
+                await axios.post(`${API_URL}/set-year-filter`, {
+                  minYear: (filters.minYear !== undefined && filters.minYear > 0) ? filters.minYear : null,
+                  maxYear: (filters.maxYear !== undefined && filters.maxYear > 0) ? filters.maxYear : null
+                });
+              } catch (yearError: any) {
+                console.log('[REDIRECT] Фильтр года не найден, будет применена сортировка по году из заголовка');
+              }
+            }
+
+            if (filters.maxAgeMinutes && filters.maxAgeMinutes > 0) {
+              await axios.post(`${API_URL}/set-age-filter`, { maxAgeMinutes: filters.maxAgeMinutes }).catch(() => { });
+            }
+
+            // Выполняем анализ
+            await sendListings(targetCtx);
+            await bot.api.sendMessage(992214272, '✅ Анализ завершен');
+
+            // Отправляем подтверждение инициатору
+            await ctx.reply('✅ Анализ запущен для целевого пользователя');
+          } catch (error) {
+            console.error('[REDIRECT] Ошибка при анализе:', error);
+            await bot.api.sendMessage(992214272, `❌ Ошибка при анализе: ${error}`);
+            await ctx.reply('❌ Ошибка при запуске анализа');
+          }
+        } else {
+          await bot.api.sendMessage(992214272, '❌ У вас не настроены фильтры для анализа. Настройте их через команду "🛠 Настроить фильтры"');
+          await ctx.reply('❌ У целевого пользователя не настроены фильтры');
+        }
+        return; // Прерываем дальнейшую обработку
+      }
+    }
+
+    // Для других сообщений просто уведомляем целевого пользователя
+    await bot.api.sendMessage(992214272, `📩 Сообщение от 7894754476: ${ctx.message?.text || 'не текст'}`).catch(() => { });
+    await ctx.reply('✅ Сообщение переслано целевому пользователю');
+    return;
+  }
+
   await next()
 })
 
@@ -207,7 +339,7 @@ const ALL_KNOWN_URLS = new Set<string>();
 
 try {
   const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sent_items'").get()
-  
+
   if (!tableExists) {
     console.log('Создаю таблицу sent_items')
     db.exec(`CREATE TABLE sent_items (itemUrl TEXT PRIMARY KEY, timestamp INTEGER)`)
@@ -217,7 +349,7 @@ try {
     try {
       const testCol = db.prepare('SELECT itemUrl FROM sent_items LIMIT 1')
       testCol.get()
-      
+
       try {
         const testTimestamp = db.prepare('SELECT timestamp FROM sent_items LIMIT 1')
         testTimestamp.get()
@@ -227,30 +359,30 @@ try {
         db.exec(`ALTER TABLE sent_items ADD COLUMN timestamp INTEGER DEFAULT 0`)
         db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_items_timestamp ON sent_items(timestamp)`)
       }
-      
+
       console.log('Таблица sent_items уже существует с колонкой itemUrl')
     } catch (e) {
       console.log('Добавляю колонку itemUrl в таблицу sent_items')
       db.exec(`ALTER TABLE sent_items ADD COLUMN itemUrl TEXT`)
       db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_items_url ON sent_items(itemUrl)`)
-      
+
       console.log('Добавляю колонку timestamp в таблицу sent_items')
       db.exec(`ALTER TABLE sent_items ADD COLUMN timestamp INTEGER DEFAULT 0`)
       db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_items_timestamp ON sent_items(timestamp)`)
     }
   }
-  
+
   function cleanupOldRecords() {
     try {
       const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
       const deletedCount = db.prepare('DELETE FROM sent_items WHERE timestamp > 0 AND timestamp < ?').run(oneDayAgo);
       console.log(`Удалено ${deletedCount?.changes || 0} старых записей из таблицы sent_items`);
-      
+
       const deletedLegacyCount = db.prepare('DELETE FROM sent_items WHERE timestamp IS NULL OR timestamp = 0 LIMIT 1000').run();
       if (deletedLegacyCount?.changes && deletedLegacyCount.changes > 0) {
         console.log(`Удалено ${deletedLegacyCount.changes} устаревших записей без timestamp`);
       }
-      
+
       if ((deletedCount?.changes || 0) > 1000) {
         console.log('Выполняется вакуум БД для оптимизации размера файла...');
         db.exec('VACUUM');
@@ -282,10 +414,10 @@ try {
   loadAllUrlsToCache();
 
   cleanupOldRecords();
-  
-  const CLEANUP_INTERVAL = 60 * 60 * 1000; 
+
+  const CLEANUP_INTERVAL = 60 * 60 * 1000;
   setInterval(cleanupOldRecords, CLEANUP_INTERVAL);
-  
+
 } catch (e) {
   console.error('Ошибка при инициализации БД:', e)
 }
@@ -344,13 +476,13 @@ function pruneSessionCache(ctx: MyContext) {
 
 async function startFilterWizard(ctx: MyContext) {
   ctx.session.filters = { step: 'query' }
-  
+
   const apiAvailable = await checkApiStatus(API_URL);
   if (!apiAvailable) {
     await ctx.reply('❌ КРИТИЧЕСКАЯ ОШИБКА: API сервер недоступен. Мониторинг невозможен.', { reply_markup: mainMenu });
     return;
   }
-  
+
   try {
     console.log('[startFilterWizard] Навигация на базовую страницу Marketplace...');
     const navigateResult = await withRetry(() => axios.post(`${API_URL}/navigate-to-marketplace`, {}), 3, 2000);
@@ -362,7 +494,7 @@ async function startFilterWizard(ctx: MyContext) {
   } catch (navError) {
     console.error('[startFilterWizard] Ошибка при навигации на базовую страницу:', navError);
   }
-  
+
   await ctx.reply('Введи ключевые слова для поиска:');
 }
 
@@ -377,7 +509,7 @@ bot.command('start', async (ctx: MyContext) => {
     '• 5000₽+ на антикапчи\n' +
     '• Solo разработка\n\n' +
     'Мониторинг Facebook Marketplace объявлений по твоим фильтрам.\n\n' +
-    'Выбери действие:', 
+    'Выбери действие:',
     { reply_markup: mainMenu }
   )
 })
@@ -385,14 +517,14 @@ bot.command('start', async (ctx: MyContext) => {
 async function performFullClear(ctx: MyContext) {
   const oldCacheSize = ALL_KNOWN_URLS.size;
   const sentSize = ctx.session.sent.size;
-  
+
   ALL_KNOWN_URLS.clear();
   ctx.session.sent = new Set();
   ctx.session.consecutiveEmptyScans = 0;
   ctx.session.lastStatusMessageId = undefined;
-  
+
   console.log(`[Кэш] Полная очистка: глобальный кэш (было ${oldCacheSize} записей), сессия пользователя (было ${sentSize} записей)`);
-  
+
   try {
     console.log('Загрузка всех URL из базы данных в кэш...');
     const allUrls = db.prepare('SELECT itemUrl FROM sent_items WHERE itemUrl IS NOT NULL').all();
@@ -425,7 +557,7 @@ bot.hears('🔄 Пере-настройка', startFilterWizard)
 
 bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
   if (!ctx.message?.text) return next();
-  
+
   const { step } = ctx.session.filters
   if (step === 'query') {
     ctx.session.filters.query = ctx.message.text
@@ -441,7 +573,7 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
       console.log('Ответ геокодера:', geoRes.data);
 
       if (geoRes.data && geoRes.data.success) {
-        
+
         const displayNameFull = geoRes.data.displayName || '';
         const displayNameShort = displayNameFull.split(',').slice(0, 5).join(',').trim();
 
@@ -484,7 +616,7 @@ bot.on('message:text', async (ctx: MyContext, next: () => Promise<void>) => {
     const max = Number(ctx.message.text)
     if (isNaN(max)) return ctx.reply('Пожалуйста, введи число!')
     ctx.session.filters.maxPrice = max
-    
+
     // Для всех категорий спрашиваем про год (не только для машин)
     ctx.session.filters.step = 'minYear'
     await ctx.reply('Введи минимальный год выпуска (или 0 если нет ограничений):', { reply_markup: cancelKeyboard })
@@ -518,7 +650,7 @@ bot.callbackQuery(/^city_confirm:(yes|no)/, async (ctx: MyContext) => {
   if (ctx.session.filters.step !== 'city_confirmation' || !ctx.session.filters.tmpCityData) {
     return ctx.answerCallbackQuery();
   }
-  
+
   if (!ctx.match) return ctx.answerCallbackQuery();
 
   const choice = ctx.match[1];
@@ -531,7 +663,7 @@ bot.callbackQuery(/^city_confirm:(yes|no)/, async (ctx: MyContext) => {
     ctx.session.filters.apiCityName = tmpData.name;
     ctx.session.filters.apiCityDisplayName = tmpData.displayName;
     ctx.session.filters.step = 'radius';
-    
+
     await ctx.editMessageText('✓ Город подтвержден.');
 
     const ikb = new InlineKeyboard()
@@ -565,24 +697,24 @@ bot.callbackQuery(/^age:(\d+)/, async (ctx: MyContext) => {
   if (ctx.session.filters.step !== 'ageLimit') return ctx.answerCallbackQuery()
   if (!ctx.match) return ctx.answerCallbackQuery()
   ctx.session.filters.maxAgeMinutes = Number(ctx.match[1])
-    ctx.session.filters.step = null
+  ctx.session.filters.step = null
   await ctx.editMessageText(`Максимальный возраст: ${ctx.session.filters.maxAgeMinutes} мин.`)
-    try {
-      await axios.post(`${API_URL}/set-location`, { city: ctx.session.filters.city, radius: ctx.session.filters.radius, latitude: ctx.session.filters.lat, longitude: ctx.session.filters.lon })
-      await axios.post(`${API_URL}/set-price-filter`, { minPrice: ctx.session.filters.minPrice, maxPrice: ctx.session.filters.maxPrice })
-      if ((ctx.session.filters.minYear !== undefined && ctx.session.filters.minYear > 0) || 
-          (ctx.session.filters.maxYear !== undefined && ctx.session.filters.maxYear > 0)) {
-          await axios.post(`${API_URL}/set-year-filter`, { 
+  try {
+    await axios.post(`${API_URL}/set-location`, { city: ctx.session.filters.city, radius: ctx.session.filters.radius, latitude: ctx.session.filters.lat, longitude: ctx.session.filters.lon })
+    await axios.post(`${API_URL}/set-price-filter`, { minPrice: ctx.session.filters.minPrice, maxPrice: ctx.session.filters.maxPrice })
+    if ((ctx.session.filters.minYear !== undefined && ctx.session.filters.minYear > 0) ||
+      (ctx.session.filters.maxYear !== undefined && ctx.session.filters.maxYear > 0)) {
+      await axios.post(`${API_URL}/set-year-filter`, {
         minYear: ctx.session.filters.minYear ?? null,
         maxYear: ctx.session.filters.maxYear ?? null
-      }).catch(() => {})
+      }).catch(() => { })
     }
     await axios.post(`${API_URL}/set-age-filter`, { maxAgeMinutes: ctx.session.filters.maxAgeMinutes })
-      await ctx.reply('✅ Фильтры сохранены! Теперь можешь запустить мониторинг.', { reply_markup: mainMenu })
-    } catch (error) {
-      console.error('Ошибка при применении фильтров:', error)
+    await ctx.reply('✅ Фильтры сохранены! Теперь можешь запустить мониторинг.', { reply_markup: mainMenu })
+  } catch (error) {
+    console.error('Ошибка при применении фильтров:', error)
     await ctx.reply('❌ ФАТАЛЬНАЯ ОШИБКА: Не удалось применить фильтры.', { reply_markup: mainMenu })
-    }
+  }
 })
 
 bot.callbackQuery(/^clear_cache:(yes|no)/, async (ctx: MyContext) => {
@@ -616,7 +748,7 @@ bot.hears('🔎 Запустить мониторинг', async (ctx: MyContext)
   const f = ctx.session.filters
   if (!f.query || !f.city || !f.radius) return ctx.reply('Сначала настрой фильтры!', { reply_markup: mainMenu })
   if (ctx.session.monitoring) return ctx.reply('Мониторинг уже запущен!', { reply_markup: mainMenu })
-  
+
   const apiAvailable = await checkApiStatus(API_URL);
   if (!apiAvailable) {
     await ctx.reply('❌ API сервер недоступен. Перезапуск...', { reply_markup: mainMenu });
@@ -626,44 +758,44 @@ bot.hears('🔎 Запустить мониторинг', async (ctx: MyContext)
       return;
     }
   }
-  
+
   ctx.session.consecutiveEmptyScans = 0;
   ctx.session.lastStatusMessageId = undefined;
   console.log(`[Мониторинг] Сброшены счетчики мониторинга (кэш дубликатов сохранен)`);
-  
+
   try {
     const cityToSet = f.apiCityName || f.city;
     await axios.post(`${API_URL}/navigate-to-marketplace`, {});
     await axios.post(`${API_URL}/search`, { query: f.query });
     await axios.post(`${API_URL}/set-location`, { city: cityToSet, radius: f.radius, latitude: f.lat, longitude: f.lon });
     await axios.post(`${API_URL}/set-price-filter`, { minPrice: f.minPrice, maxPrice: f.maxPrice });
-    
+
     if ((f.minYear !== undefined && f.minYear > 0) || (f.maxYear !== undefined && f.maxYear > 0)) {
       try {
-        await axios.post(`${API_URL}/set-year-filter`, { 
+        await axios.post(`${API_URL}/set-year-filter`, {
           minYear: (f.minYear !== undefined && f.minYear > 0) ? f.minYear : null,
-          maxYear: (f.maxYear !== undefined && f.maxYear > 0) ? f.maxYear : null 
+          maxYear: (f.maxYear !== undefined && f.maxYear > 0) ? f.maxYear : null
         });
       } catch (yearError: any) {
         console.log('Фильтр года не найден, будет применена сортировка по году из заголовка')
       }
     }
-    
+
     // Устанавливаем фильтр по возрасту объявления, если задан
     if (f.maxAgeMinutes && f.maxAgeMinutes > 0) {
-      await axios.post(`${API_URL}/set-age-filter`, { maxAgeMinutes: f.maxAgeMinutes }).catch(() => {})
+      await axios.post(`${API_URL}/set-age-filter`, { maxAgeMinutes: f.maxAgeMinutes }).catch(() => { })
     }
-    
+
     ctx.session.monitoring = true
     await sendListings(ctx)
     await ctx.reply('✅ Мониторинг запущен!', { reply_markup: mainMenu })
-    
+
     if (!ctx.chat) return ctx.reply('❌ Ошибка: чат недоступен')
-    
+
     if (monitoringIntervals.has(ctx.chat.id)) {
       clearInterval(monitoringIntervals.get(ctx.chat.id));
     }
-    
+
     const chatId = ctx.chat.id;
     const intervalId = setInterval(() => {
       if (ctx.session && ctx.session.monitoring) {
@@ -675,9 +807,9 @@ bot.hears('🔎 Запустить мониторинг', async (ctx: MyContext)
         monitoringIntervals.delete(chatId);
       }
     }, 5 * 60 * 1000);
-    
+
     monitoringIntervals.set(chatId, intervalId);
-    
+
   } catch (error) {
     console.error('Ошибка при применении фильтров:', error)
     await ctx.reply('❌ Не удалось применить фильтры.', { reply_markup: mainMenu })
@@ -688,16 +820,16 @@ bot.hears('🔎 Запустить мониторинг', async (ctx: MyContext)
 function isFakeListingByPrice(item: any): boolean {
   const title = item.title?.trim() || '';
   const price = item.price?.trim() || '';
-  
+
   // Проверка 1: Точное совпадение title и price
   if (title === price) return true;
-  
+
   // Проверка 2: Title начинается с $ и содержит только цифры/запятые
   if (title.startsWith('$') && /^\$[\d,]+$/.test(title)) return true;
-  
+
   // Проверка 3: Title короче 10 символов и похож на цену
   if (title.length < 10 && /^\$\d/.test(title)) return true;
-  
+
   return false;
 }
 
@@ -715,22 +847,22 @@ async function sendListings(ctx: MyContext) {
       await ctx.reply('❌ API недоступен. Мониторинг остановлен.', { reply_markup: mainMenu });
       return;
     }
-    
+
     if (statusRes.data.restarting_soon) {
       console.log('[sendListings] API готовится к плановому перезапуску, пропускаю цикл мониторинга.');
       return;
     }
 
     const res = await axios.get(`${API_URL}/listings?count=10`);
-    
+
     if (!res.data || !res.data.items) {
       console.log('[sendListings] Некорректный ответ API');
       return
     }
-    
+
     const items = res.data.items || []
     console.log('[sendListings] Получено объявлений:', items.length)
-    
+
     // Фильтрация фейковых объявлений по цене
     const filteredItems = items.filter((item: any) => {
       if (isFakeListingByPrice(item)) {
@@ -739,22 +871,22 @@ async function sendListings(ctx: MyContext) {
       }
       return true;
     });
-    
+
     let fakeFilteredCount = items.length - filteredItems.length;
     if (fakeFilteredCount > 0) {
       console.log(`[sendListings] Отфильтровано ${fakeFilteredCount} фейковых объявлений`);
     }
-    
+
     // Логируем информацию о фильтрации по времени публикации
     if (res.data.timeFilteredCount && res.data.timeFilteredCount > 0) {
       console.log(`[sendListings] API отфильтровал ${res.data.timeFilteredCount} объявлений по времени публикации`);
     }
-    
+
     await clearImages()
-    
+
     const uniqueItems = [];
     let duplicatesRemoved = 0;
-    
+
     for (const item of filteredItems as any[]) {
       const url = item.itemUrl;
       if (!url) continue;
@@ -765,12 +897,12 @@ async function sendListings(ctx: MyContext) {
         duplicatesRemoved++;
         continue;
       }
-      
+
       // Добавляем новое объявление (только URL)
-      ALL_KNOWN_URLS.add(normalizedUrl); 
-      ctx.session.sent.add(normalizedUrl); 
+      ALL_KNOWN_URLS.add(normalizedUrl);
+      ctx.session.sent.add(normalizedUrl);
       uniqueItems.push(item);
-      
+
       try {
         const timestamp = Date.now();
         db.prepare('INSERT OR IGNORE INTO sent_items (itemUrl, timestamp) VALUES (?, ?)').run(normalizedUrl, timestamp);
@@ -778,28 +910,28 @@ async function sendListings(ctx: MyContext) {
         console.error('[sendListings] Ошибка сохранения:', insertError);
       }
     }
-    
+
     console.log(`[sendListings] Новых: ${uniqueItems.length}, дубликатов: ${duplicatesRemoved}`);
-    
+
     pruneSessionCache(ctx);
     if (ALL_KNOWN_URLS.size >= MAX_GLOBAL_URLS) flushGlobalUrlsToDB();
-    
+
     // Логика уведомлений о результатах сканирования
     if (uniqueItems.length > 0) {
       // Найдены новые объявления - сбрасываем счетчик и удаляем старое статусное сообщение
       ctx.session.consecutiveEmptyScans = 0;
       ctx.session.lastStatusMessageId = undefined;
-      
+
       // Отправляем сообщение об успехе
-      let successText = uniqueItems.length === 1 
-        ? '✅ Найдено 1 новое объявление!' 
+      let successText = uniqueItems.length === 1
+        ? '✅ Найдено 1 новое объявление!'
         : `✅ Найдено ${uniqueItems.length} новых объявлений!`;
-      
+
       // Добавляем информацию о временной фильтрации, если она применялась
       if (res.data.timeFilteredCount && res.data.timeFilteredCount > 0) {
         successText += ` (${res.data.timeFilteredCount} отфильтровано по времени публикации)`;
       }
-      
+
       try {
         await ctx.reply(successText);
       } catch (error) {
@@ -808,7 +940,7 @@ async function sendListings(ctx: MyContext) {
     } else {
       // Новых объявлений нет - увеличиваем счетчик
       ctx.session.consecutiveEmptyScans = (ctx.session.consecutiveEmptyScans || 0) + 1;
-      
+
       // Проверяем, нужно ли запустить автовосстановление
       if (ctx.session.consecutiveEmptyScans >= 3) {
         console.log('🔄 Обнаружено 3+ пустых сканов подряд, проверяю необходимость автовосстановления...');
@@ -817,7 +949,7 @@ async function sendListings(ctx: MyContext) {
           const statusResponse = await axios.get(`${API_URL}/status`);
           if (statusResponse.data && statusResponse.data.stage) {
             console.log('📊 API работает, но возвращает 0 товаров - возможна ошибка Facebook');
-            
+
             // Попытка рефреша страницы как мягкое восстановление
             try {
               await axios.post(`${API_URL}/refresh-page`);
@@ -830,9 +962,9 @@ async function sendListings(ctx: MyContext) {
           console.error('❌ API недоступен при проверке автовосстановления:', apiError);
         }
       }
-      
+
       const statusText = `🔍 Не найдено новых объявлений (сканов без результата: ${ctx.session.consecutiveEmptyScans})`;
-      
+
       try {
         if (ctx.session.lastStatusMessageId) {
           // Обновляем существующее сообщение
@@ -854,7 +986,7 @@ async function sendListings(ctx: MyContext) {
         ctx.session.lastStatusMessageId = undefined;
       }
     }
-    
+
     for (const item of uniqueItems) {
       try {
         await ctx.replyWithPhoto(item.imageUrl, {
@@ -867,20 +999,20 @@ async function sendListings(ctx: MyContext) {
         console.error('[sendListings] Ошибка отправки:', sendError);
       }
     }
-    
+
   } catch (e) {
     console.error('[sendListings] Ошибка:', e)
-    
+
     // Проверяем, является ли ошибка критической для браузера
     const errorString = String(e);
-    if (errorString.includes('Timeout') || 
-        errorString.includes('NS_BINDING_ABORTED') ||
-        errorString.includes('detached') ||
-        errorString.includes('Protocol error') ||
-        errorString.includes('browser has disconnected')) {
-      
+    if (errorString.includes('Timeout') ||
+      errorString.includes('NS_BINDING_ABORTED') ||
+      errorString.includes('detached') ||
+      errorString.includes('Protocol error') ||
+      errorString.includes('browser has disconnected')) {
+
       console.log('🔄 Обнаружена критическая ошибка в мониторинге, пытаемся перезапустить API...');
-      
+
       // Попытка перезапуска API через запрос
       try {
         const restarted = await tryRestartApiServer();
@@ -893,8 +1025,8 @@ async function sendListings(ctx: MyContext) {
         console.error('[sendListings] Ошибка перезапуска API:', restartError);
       }
     }
-    
-    ctx.session.monitoring = false 
+
+    ctx.session.monitoring = false
     await ctx.reply('❌ Ошибка мониторинга. Остановлен.', { reply_markup: mainMenu })
   }
 }
@@ -902,7 +1034,7 @@ async function sendListings(ctx: MyContext) {
 async function clearImages() {
   try {
     const imgDirs = [
-      '/home/derx/Проекты/freelanceproj/api/src/img',  
+      '/home/derx/Проекты/freelanceproj/api/src/img',
       path.join(process.cwd(), 'api/src/img'),
       path.join(process.cwd(), '../api/src/img'),
       path.resolve(__dirname, '../../api/src/img'),
@@ -910,10 +1042,10 @@ async function clearImages() {
       '/home/derx/Проекты/freelanceproj/api/src/img',
       path.resolve(process.cwd(), 'api/src/img')
     ]
-    
+
     console.log('Очистка старых изображений (старше 30 минут)...')
     const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
-    
+
     let dirCleaned = false
     for (const imgDir of imgDirs) {
       if (fs.existsSync(imgDir)) {
@@ -923,21 +1055,21 @@ async function clearImages() {
           let deleted = 0
           let skipped = 0
           let duplicatesRemoved = 0
-          
-          const fileGroups = new Map<string, Array<{name: string, path: string, mtime: number}>>()
-          
+
+          const fileGroups = new Map<string, Array<{ name: string, path: string, mtime: number }>>()
+
           for (const file of files) {
             if (file.endsWith('.png') || file.endsWith('.jpg') || file.endsWith('.jpeg')) {
               const filePath = path.join(imgDir, file)
               try {
                 const stats = fs.statSync(filePath);
-                
+
                 if (stats.mtime.getTime() < thirtyMinutesAgo) {
                   fs.unlinkSync(filePath)
                   deleted++
                   continue
                 }
-                
+
                 const productKey = file.split('_').slice(0, 2).join('_')
                 if (!fileGroups.has(productKey)) {
                   fileGroups.set(productKey, [])
@@ -947,7 +1079,7 @@ async function clearImages() {
                   path: filePath,
                   mtime: stats.mtime.getTime()
                 })
-                
+
                 skipped++
               } catch (e) {
                 const errorMsg = e instanceof Error ? e.message : String(e)
@@ -955,7 +1087,7 @@ async function clearImages() {
               }
             }
           }
-          
+
           for (const [productKey, group] of fileGroups.entries()) {
             if (group.length > 1) {
               group.sort((a, b) => b.mtime - a.mtime)
@@ -971,7 +1103,7 @@ async function clearImages() {
               }
             }
           }
-          
+
           if (deleted > 0 || skipped > 0 || duplicatesRemoved > 0) {
             console.log(`Удалено ${deleted} старых файлов, ${duplicatesRemoved} дубликатов, оставлено ${skipped - duplicatesRemoved} уникальных в ${imgDir}`)
           }
@@ -982,7 +1114,7 @@ async function clearImages() {
         }
       }
     }
-    
+
     if (!dirCleaned) {
       console.error('Не найдена ни одна директория с изображениями! Проверены пути:', imgDirs)
     }
@@ -995,14 +1127,14 @@ bot.hears('⏹ Остановить', async (ctx: MyContext) => {
   ctx.session.monitoring = false
   ctx.session.consecutiveEmptyScans = 0
   ctx.session.lastStatusMessageId = undefined
-  
+
   if (!ctx.chat) return ctx.reply('❌ Ошибка: чат недоступен')
   if (monitoringIntervals.has(ctx.chat.id)) {
     clearInterval(monitoringIntervals.get(ctx.chat.id));
     monitoringIntervals.delete(ctx.chat.id);
     console.log(`[Мониторинг] Остановлен интервал для чата ${ctx.chat.id}`);
   }
-  
+
   try {
     console.log('[Остановка] Навигация на базовую страницу Marketplace...');
     const navigateResult = await withRetry(() => axios.post(`${API_URL}/navigate-to-marketplace`, {}), 3, 2000);
@@ -1014,37 +1146,37 @@ bot.hears('⏹ Остановить', async (ctx: MyContext) => {
   } catch (navError) {
     console.error('[Остановка] Ошибка при навигации на базовую страницу:', navError);
   }
-  
+
   await clearImages()
-  
+
   const cacheSize = ALL_KNOWN_URLS.size
   const sessionCacheSize = ctx.session.sent.size
   console.log(`[Остановка] Глобальный кэш: ${cacheSize} URL, сессия пользователя: ${sessionCacheSize} URL (сохранены)`)
-  
+
   await ctx.reply('✓', { reply_markup: mainMenu })
 })
 
 bot.hears('📋 Мои фильтры', async (ctx: MyContext) => {
   const f = ctx.session.filters
   if (!f.query) return ctx.reply('Фильтры не настроены.', { reply_markup: mainMenu })
-  
+
   let cityInfo = `Город: ${f.city}`;
   if (f.apiCityName) {
     cityInfo = `Город: ${f.apiCityName}\nПодробная инфа: ${f.apiCityDisplayName}`;
   }
 
   let filterText = `Ключевые слова: ${f.query}\n${cityInfo}\nРадиус: ${f.radius} миль\nЦена: ${f.minPrice}–${f.maxPrice}`;
-  
+
   if ((f.minYear !== undefined && f.minYear > 0) || (f.maxYear !== undefined && f.maxYear > 0)) {
     const minYearStr = f.minYear !== undefined && f.minYear > 0 ? f.minYear.toString() : '-';
     const maxYearStr = f.maxYear !== undefined && f.maxYear > 0 ? f.maxYear.toString() : '-';
     filterText += `\nГод выпуска: ${minYearStr}–${maxYearStr}`;
   }
-  
+
   if (f.maxAgeMinutes) {
     filterText += `\nМаксимальный возраст: ${f.maxAgeMinutes} мин.`;
   }
-  
+
   await ctx.reply(filterText, { reply_markup: mainMenu })
 })
 
@@ -1066,7 +1198,7 @@ setInterval(() => {
   if (heapUsed > 3 * 1024 * 1024 * 1024) {
     console.log('[Memory] Threshold exceeded, flushing caches');
     flushGlobalUrlsToDB();
-    axios.post(`${API_URL}/clear-image-cache`).catch(() => {});
+    axios.post(`${API_URL}/clear-image-cache`).catch(() => { });
     if ((global as any).gc) (global as any).gc();
   }
 }, 10 * 60 * 1000);
