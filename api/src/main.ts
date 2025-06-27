@@ -1477,133 +1477,186 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
       console.log('Ожидаем загрузки товаров...');
       await globalPage.waitForTimeout(3000);
       console.log('Извлекаем данные о товарах...');
-      const sortButton = await globalPage.$('div[role="button"].x1i10hfl.x1qjc9v5.xjbqb8w.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x1ypdohk.xdl72j9.x2lah0s.xe8uvvx.xat24cr.x1mh8g0r.x2lwn1j.xeuugli.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x1n2onr6.x16tdsg8.x1hl2dhg.xggy1nq.x1ja2u2z.x1t137rt.x1o1ewxj.x3x9cwd.x1e5q0jg.x13rtm0m.x1q0g3np.x87ps6o.x1lku1pv.x78zum5.x1a2a7pz.xqvfhly.x1emribx.xdj266r');
-      if (sortButton) {
+
+      // ГАРАНТИРОВАННОЕ применение фильтров с задержкой 5 секунд между кликами
+      console.log('🔥 ГАРАНТИРОВАННЫЙ поиск и применение фильтров с задержкой 5 секунд...');
+
+      // Шаг 1: Клик на "Сортировка:"
+      console.log('🔍 Шаг 1: Клик на "Сортировка:"');
+      let sortClicked = false;
+
+      try {
+        await globalPage.click('text=Сортировка:');
+        sortClicked = true;
+        console.log('✅ Кликнул на "Сортировка:" через text селектор');
+      } catch (error) {
+        console.log(`❌ text селектор не сработал: ${error}`);
+
         try {
-          await sortButton.click({ timeout: 3000 });
-          await globalPage.waitForTimeout(500);
-        } catch {
-          try {
-            await sortButton.evaluate((el) => (el as HTMLElement).click());
-            await globalPage.waitForTimeout(500);
-          } catch {
-            const child = await sortButton.$('div,span');
-            if (child) {
-              await child.click({ timeout: 3000 });
-              await globalPage.waitForTimeout(500);
-            }
-          }
-        }
-        console.log('Ищу опцию "Дата публикации: сначала новые"...');
-        try {
-          const newPublicationOption = await globalPage.locator('span', {
-            hasText: 'Дата публикации: сначала новые'
-          }).first();
-          if (await newPublicationOption.count() > 0) {
-            console.log('Опция найдена через локатор по тексту, кликаю...');
-            await newPublicationOption.click();
-            await globalPage.waitForTimeout(1000);
-          } else {
-            const optionById = await globalPage.$('span[id="«r3j»"]');
-            if (optionById) {
-              console.log('Опция найдена через id="«r3j»", кликаю...');
-              await optionById.click();
-              await globalPage.waitForTimeout(1000);
-            } else {
-              const sortMenuItem = await globalPage.waitForSelector('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x1xmvt09.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.xudqn12.x3x7a5m.x6prxxf.xvq8zen.xk50ysn.xzsf02u.x1yc453h', { timeout: 3000 });
-              if (sortMenuItem) {
-                const text = await sortMenuItem.textContent();
-                if (text && text.includes('Дата публикации: сначала новые')) {
-                  console.log('Опция найдена через CSS селектор, кликаю...');
-                  await sortMenuItem.click();
-                  await globalPage.waitForTimeout(1000);
-                }
-              } else {
-                console.log('Пытаюсь найти опцию через JavaScript...');
-                await globalPage.evaluate(() => {
-                  const allSpans = Array.from(document.querySelectorAll('span'));
-                  for (const span of allSpans) {
-                    if (span.textContent && span.textContent.includes('Дата публикации: сначала новые')) {
-                      (span as HTMLElement).click();
-                      return true;
-                    }
-                  }
-                  const radioItems = Array.from(document.querySelectorAll('div[aria-checked="false"][role="radio"]'));
-                  for (const radio of radioItems) {
-                    const textSpan = radio.querySelector('span');
-                    if (textSpan && textSpan.textContent && textSpan.textContent.includes('Дата публикации: сначала новые')) {
-                      (radio as HTMLElement).click();
-                      return true;
-                    }
-                  }
-                  const exactRadioSelector = 'div[aria-checked="false"][role="radio"].x1i10hfl.x1qjc9v5.xjbqb8w.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x1ypdohk.xdl72j9.x2lah0s.xe8uvvx.xdj266r.x11i5rnm.xat24cr.x1mh8g0r.x2lwn1j.xeuugli.xexx8yu.x4uap5.x18d9i69.x1sxyh0.xurb0ha.xexx8yu.x1n2onr6.x1ja2u2z.x1gg8mnh';
-                  const exactRadioButtons = document.querySelectorAll(exactRadioSelector);
-                  for (const radio of Array.from(exactRadioButtons)) {
-                    const inner = radio.querySelector('div.x6s0dn4.x1q0q8m5.x1qhh985.xu3j5b3.xcfux6l.x26u7qi.xm0m39n.x13fuv20.x972fbf.x9f619.x78zum5.x1q0g3np.x1iyjqo2.xs83m0k.x1qughib.xat24cr.x11i5rnm.x1mh8g0r.xdj266r.xeuugli.x18d9i69.x1sxyh0.xurb0ha.xexx8yu.x1n2onr6.x1ja2u2z.x1gg8mnh');
-                    if (inner) {
-                      const textDiv = inner.querySelector('div.xod5an3.x16n37ib.x14vqqas.x1n2onr6.xqcrz7y');
-                      if (textDiv) {
-                        const targetSpan = radio.querySelector('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x10flsy6.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.x4zkp8e.x41vudc.x6prxxf.xvq8zen.x1s688f.xzsf02u');
-                        if (targetSpan && targetSpan.textContent && targetSpan.textContent.includes('Дата публикации: сначала новые')) {
-                          console.log('Найден точный элемент по HTML структуре');
-                          (radio as HTMLElement).click();
-                          return true;
-                        }
-                      }
-                    }
-                  }
-                  return false;
-                });
-                await globalPage.waitForTimeout(1000);
+          const jsSort = await globalPage.evaluate(() => {
+            const spans = Array.from(document.querySelectorAll('span'));
+            for (const span of spans) {
+              if (span.textContent && span.textContent.includes('Сортировка:')) {
+                (span as HTMLElement).click();
+                return true;
               }
             }
-          }
-        } catch (error) {
-          console.error(`Ошибка при клике на "Дата публикации: сначала новые": ${error}`);
-        }
+            return false;
+          });
 
-        // Клик на "Дата размещения"
-        try {
-          console.log('Ищу элемент "Дата размещения"...');
-          const datePostingElement = await globalPage.locator('span', { hasText: 'Дата размещения' }).first();
-          if (await datePostingElement.count() > 0) {
-            console.log('Элемент "Дата размещения" найден, кликаю...');
-            await datePostingElement.click();
-            await globalPage.waitForTimeout(1000);
-          } else {
-            // Попытка через селектор класса
-            const datePostingByClass = await globalPage.$('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x10flsy6.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.x4zkp8e.x41vudc.x6prxxf.xvq8zen.x1s688f.xzsf02u');
-            if (datePostingByClass) {
-              console.log('Элемент "Дата размещения" найден по классу, кликаю...');
-              await datePostingByClass.click();
-              await globalPage.waitForTimeout(1000);
-            }
+          if (jsSort) {
+            sortClicked = true;
+            console.log('✅ Кликнул на "Сортировка:" через JavaScript');
           }
-        } catch (error) {
-          console.error(`Ошибка при клике на "Дата размещения": ${error}`);
-        }
-
-        // Клик на "Последние 24 часа"
-        try {
-          console.log('Ищу элемент "Последние 24 часа"...');
-          const last24HoursElement = await globalPage.locator('span', { hasText: 'Последние 24 часа' }).first();
-          if (await last24HoursElement.count() > 0) {
-            console.log('Элемент "Последние 24 часа" найден, кликаю...');
-            await last24HoursElement.click();
-            await globalPage.waitForTimeout(1000);
-          } else {
-            // Попытка через селектор класса
-            const last24HoursByClass = await globalPage.$('span.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x10flsy6.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.x4zkp8e.x41vudc.x6prxxf.xvq8zen.xk50ysn.xzsf02u.x1yc453h');
-            if (last24HoursByClass) {
-              console.log('Элемент "Последние 24 часа" найден по классу, кликаю...');
-              await last24HoursByClass.click();
-              await globalPage.waitForTimeout(1000);
-            }
-          }
-        } catch (error) {
-          console.error(`Ошибка при клике на "Последние 24 часа": ${error}`);
+        } catch (jsError) {
+          console.log(`❌ JavaScript клик не сработал: ${jsError}`);
         }
       }
+
+      if (sortClicked) {
+        console.log('⏰ Задержка 5 секунд после клика на "Сортировка:"...');
+        await globalPage.waitForTimeout(5000);
+
+        // Шаг 2: Клик на "Дата публикации: сначала новые"
+        console.log('🔍 Шаг 2: Клик на "Дата публикации: сначала новые"');
+        let datePublicationClicked = false;
+
+        try {
+          await globalPage.click('#_r_34_');
+          datePublicationClicked = true;
+          console.log('✅ Кликнул на "Дата публикации: сначала новые" через ID селектор');
+        } catch (error) {
+          console.log(`❌ ID селектор не сработал: ${error}`);
+
+          try {
+            await globalPage.click('.x153efwv > .xb57i2i div:nth-child(3) > .x1i10hfl .x1qjc9v5');
+            datePublicationClicked = true;
+            console.log('✅ Кликнул на "Дата публикации: сначала новые" через CSS селектор');
+          } catch (cssError) {
+            console.log(`❌ CSS селектор не сработал: ${cssError}`);
+
+            try {
+              const jsDatePub = await globalPage.evaluate(() => {
+                const spans = Array.from(document.querySelectorAll('span'));
+                for (const span of spans) {
+                  if (span.textContent && span.textContent.includes('Дата публикации: сначала')) {
+                    (span as HTMLElement).click();
+                    return true;
+                  }
+                }
+                return false;
+              });
+
+              if (jsDatePub) {
+                datePublicationClicked = true;
+                console.log('✅ Кликнул на "Дата публикации: сначала новые" через JavaScript');
+              }
+            } catch (jsError) {
+              console.log(`❌ JavaScript клик не сработал: ${jsError}`);
+            }
+          }
+        }
+
+        if (datePublicationClicked) {
+          console.log('⏰ Задержка 5 секунд после клика на "Дата публикации"...');
+          await globalPage.waitForTimeout(5000);
+
+          // Шаг 3: Клик на "Дата размещения"
+          console.log('🔍 Шаг 3: Клик на "Дата размещения"');
+          let datePostingClicked = false;
+
+          try {
+            await globalPage.click('text=Дата размещения');
+            datePostingClicked = true;
+            console.log('✅ Кликнул на "Дата размещения" через text селектор');
+          } catch (error) {
+            console.log(`❌ text селектор не сработал: ${error}`);
+
+            try {
+              const jsDatePost = await globalPage.evaluate(() => {
+                const spans = Array.from(document.querySelectorAll('span'));
+                for (const span of spans) {
+                  if (span.textContent && span.textContent.includes('Дата размещения')) {
+                    (span as HTMLElement).click();
+                    return true;
+                  }
+                }
+                return false;
+              });
+
+              if (jsDatePost) {
+                datePostingClicked = true;
+                console.log('✅ Кликнул на "Дата размещения" через JavaScript');
+              }
+            } catch (jsError) {
+              console.log(`❌ JavaScript клик не сработал: ${jsError}`);
+            }
+          }
+
+          if (datePostingClicked) {
+            console.log('⏰ Задержка 5 секунд после клика на "Дата размещения"...');
+            await globalPage.waitForTimeout(5000);
+
+            // Шаг 4: Клик на "Последние 24 часа"
+            console.log('🔍 Шаг 4: Клик на "Последние 24 часа"');
+            let last24HoursClicked = false;
+
+            try {
+              await globalPage.click('#_r_3c_');
+              last24HoursClicked = true;
+              console.log('✅ Кликнул на "Последние 24 часа" через ID селектор');
+            } catch (error) {
+              console.log(`❌ ID селектор не сработал: ${error}`);
+
+              try {
+                await globalPage.click('.x153efwv:nth-child(7) div:nth-child(2) > .x1i10hfl:nth-child(1) .x1qjc9v5:nth-child(1) .x78zum5:nth-child(1)');
+                last24HoursClicked = true;
+                console.log('✅ Кликнул на "Последние 24 часа" через CSS селектор');
+              } catch (cssError) {
+                console.log(`❌ CSS селектор не сработал: ${cssError}`);
+
+                try {
+                  const js24Hours = await globalPage.evaluate(() => {
+                    const spans = Array.from(document.querySelectorAll('span'));
+                    for (const span of spans) {
+                      if (span.textContent && span.textContent.includes('Последние 24 часа')) {
+                        (span as HTMLElement).click();
+                        return true;
+                      }
+                    }
+                    return false;
+                  });
+
+                  if (js24Hours) {
+                    last24HoursClicked = true;
+                    console.log('✅ Кликнул на "Последние 24 часа" через JavaScript');
+                  }
+                } catch (jsError) {
+                  console.log(`❌ JavaScript клик не сработал: ${jsError}`);
+                }
+              }
+            }
+
+            if (last24HoursClicked) {
+              console.log('🎉 ВСЕ ФИЛЬТРЫ УСПЕШНО ПРИМЕНЕНЫ С ЗАДЕРЖКАМИ!');
+              console.log('⏰ Финальная задержка 5 секунд для загрузки результатов...');
+              await globalPage.waitForTimeout(5000);
+            } else {
+              console.log('⚠️ Не удалось кликнуть на "Последние 24 часа"');
+            }
+          } else {
+            console.log('⚠️ Не удалось кликнуть на "Дата размещения"');
+          }
+        } else {
+          console.log('⚠️ Не удалось кликнуть на "Дата публикации: сначала новые"');
+        }
+      } else {
+        console.log('⚠️ Не удалось кликнуть на "Сортировка:"');
+      }
+
+      console.log('🔄 Ждем применения фильтров и загрузки результатов...');
+      await globalPage.waitForTimeout(2000);
+
       let items = await globalPage.evaluate((maxCount: number) => {
         const results: MarketplaceItem[] = [];
         const containers = document.querySelectorAll('div.x9f619.x78zum5.xdt5ytf.x1qughib.x1rdy4ex.xz9dl7a.xsag5q8.xh8yej3.xp0eagm.x1nrcals, div[aria-hidden="false"] h1, div.xyamay9.xv54qhq.x18d9i69.xf7dkkf, div.x9f619.x1ja2u2z.x78zum5.x2lah0s.xyamay9');
