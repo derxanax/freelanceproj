@@ -1,1 +1,22 @@
-d
+{
+  "filters": {
+    "step": null,
+    "query": "Toyota Prius",
+    "city": "Los Angeles",
+    "radius": 100,
+    "minPrice": 2000,
+    "maxPrice": 15000,
+    "minYear": 2012,
+    "maxYear": 2023,
+    "maxAgeMinutes": 60,
+    "lat": 34.0522,
+    "lon": -118.2437,
+    "apiCityName": "Los Angeles",
+    "apiCityDisplayName": "Los Angeles, Los Angeles County, California, United States"
+  },
+  "monitoring": false,
+  "sent": [],
+  "lastLogMessageId": null,
+  "consecutiveEmptyScans": 0,
+  "lastStatusMessageId": null
+}
