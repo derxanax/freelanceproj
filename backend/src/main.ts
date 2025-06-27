@@ -1001,23 +1001,20 @@ async function sendListings(ctx: MyContext) {
       const statusText = `🔍 Не найдено новых объявлений (сканов без результата: ${ctx.session.consecutiveEmptyScans})`;
 
       try {
-        if (ctx.session.lastStatusMessageId) {
-          // Обновляем существующее сообщение
+        // Удаляем старое статусное сообщение если есть
+        if (ctx.session.lastStatusMessageId && ctx.chat?.id) {
           try {
-            await ctx.api.editMessageText(ctx.chat?.id!, ctx.session.lastStatusMessageId, statusText);
-          } catch (editError) {
-            // Если редактирование не удалось, создаем новое сообщение
-            console.log('[sendListings] Не удалось отредактировать сообщение, создаю новое');
-            const newMessage = await ctx.reply(statusText);
-            ctx.session.lastStatusMessageId = newMessage.message_id;
+            await ctx.api.deleteMessage(ctx.chat.id, ctx.session.lastStatusMessageId);
+          } catch (deleteError) {
+            console.log('[sendListings] Не удалось удалить старое сообщение (возможно уже удалено)');
           }
-        } else {
-          // Создаем новое сообщение и сохраняем его ID
-          const newMessage = await ctx.reply(statusText);
-          ctx.session.lastStatusMessageId = newMessage.message_id;
         }
+
+        // Отправляем новое сообщение и сохраняем его ID
+        const newMessage = await ctx.reply(statusText);
+        ctx.session.lastStatusMessageId = newMessage.message_id;
       } catch (error) {
-        console.error('[sendListings] Ошибка отправки/редактирования статусного сообщения:', error);
+        console.error('[sendListings] Ошибка отправки статусного сообщения:', error);
         ctx.session.lastStatusMessageId = undefined;
       }
     }
