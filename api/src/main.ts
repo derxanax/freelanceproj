@@ -2168,6 +2168,50 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
 
       console.log(`Статистика изображений: скачано ${imageStats.downloaded}, переиспользовано ${imageStats.reused}, из кэша ${imageStats.cached}`);
 
+      // 🔥 ФИНАЛЬНАЯ ПРОВЕРКА URL И ПРИНУДИТЕЛЬНОЕ ПРИМЕНЕНИЕ ФИЛЬТРОВ
+      console.log('🔍 Проверяем финальный URL после всех кликов...');
+      const currentUrl = globalPage.url();
+      console.log(`Текущий URL: ${currentUrl}`);
+
+      const hasDateFilter = currentUrl.includes('daysSinceListed=1');
+      const hasSortFilter = currentUrl.includes('sortBy=creation_time_descend');
+
+      if (!hasDateFilter || !hasSortFilter) {
+        console.log('⚠️ ФИЛЬТРЫ НЕ ПРИМЕНИЛИСЬ! Принудительно меняем URL...');
+
+        try {
+          // Парсим текущий URL и добавляем недостающие параметры
+          const url = new URL(currentUrl);
+          const params = new URLSearchParams(url.search);
+
+          // Добавляем недостающие фильтры
+          if (!hasDateFilter) {
+            params.set('daysSinceListed', '1');
+            console.log('✅ Добавлен параметр daysSinceListed=1');
+          }
+
+          if (!hasSortFilter) {
+            params.set('sortBy', 'creation_time_descend');
+            console.log('✅ Добавлен параметр sortBy=creation_time_descend');
+          }
+
+          // Формируем новый URL
+          const newUrl = `${url.origin}${url.pathname}?${params.toString()}`;
+          console.log(`🔄 Переходим на новый URL: ${newUrl}`);
+
+          // Переходим на новый URL
+          await globalPage.goto(newUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          await globalPage.waitForTimeout(3000);
+
+          console.log('🎉 ФИЛЬТРЫ УСПЕШНО ПРИМЕНЕНЫ ЧЕРЕЗ ПРИНУДИТЕЛЬНОЕ ИЗМЕНЕНИЕ URL!');
+
+        } catch (urlError) {
+          console.error(`❌ Ошибка при принудительном изменении URL: ${urlError}`);
+        }
+      } else {
+        console.log('✅ Все фильтры уже применены в URL');
+      }
+
       return res.json({
         success: true,
         items,
