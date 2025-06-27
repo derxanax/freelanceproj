@@ -301,6 +301,10 @@ bot.use(async (ctx: MyContext, next: () => Promise<void>) => {
 
             // Выполняем анализ
             await sendListings(targetCtx);
+
+            // Сохраняем обновленную сессию пользователя 992214272 в файл
+            await saveSessionToFile(992214272, targetCtx.session);
+
             await bot.api.sendMessage(992214272, '✅ Анализ завершен');
 
             // Отправляем подтверждение инициатору
@@ -471,6 +475,29 @@ function pruneSessionCache(ctx: MyContext) {
     }
   } catch (error) {
     console.error('[pruneSessionCache] Error:', error);
+  }
+}
+
+async function saveSessionToFile(userId: number, sessionData: SessionData) {
+  try {
+    const sessionPath = path.join('./sessions', `${userId}.json`);
+
+    // Создаем директорию если она не существует
+    const sessionsDir = path.dirname(sessionPath);
+    if (!fs.existsSync(sessionsDir)) {
+      fs.mkdirSync(sessionsDir, { recursive: true });
+    }
+
+    // Преобразуем Set в массив для сериализации
+    const dataToSave = {
+      ...sessionData,
+      sent: Array.from(sessionData.sent)
+    };
+
+    fs.writeFileSync(sessionPath, JSON.stringify(dataToSave, null, 2), 'utf8');
+    console.log(`[saveSessionToFile] Сессия пользователя ${userId} сохранена в ${sessionPath}`);
+  } catch (error) {
+    console.error(`[saveSessionToFile] Ошибка сохранения сессии пользователя ${userId}:`, error);
   }
 }
 
