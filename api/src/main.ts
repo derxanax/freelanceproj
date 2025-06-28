@@ -1467,26 +1467,72 @@ async function handleSearch(req: Request, res: Response): Promise<Response> {
 
 
 function extractYearFromTitle(title: string): number | null {
-  const yearMatch = title.match(/\b(19|20)\d{2}\b/);
-  if (yearMatch && yearMatch[0]) {
-    return parseInt(yearMatch[0], 10);
+  console.log(`[DEBUG] Извлекаем год из: "${title}"`);
+
+  // Ищем все возможные годы в разных форматах
+  const yearRegexes = [
+    /\b(19|20)\d{2}\b/g,           // обычный формат: 2010
+    /\((19|20)\d{2}\)/g,          // в скобках: (2010)
+    /[\-\s](19|20)\d{2}[\-\s]/g,  // с тире/пробелами: -2010-
+    /(19|20)\d{2}[^\d]/g,         // год + не-цифра
+    /^(19|20)\d{2}/g,             // год в начале строки
+    /(19|20)\d{2}$/g              // год в конце строки
+  ];
+
+  const foundYears: number[] = [];
+
+  for (const regex of yearRegexes) {
+    const matches = title.matchAll(regex);
+    for (const match of matches) {
+      const yearStr = match[0].replace(/\D/g, '');
+      const year = parseInt(yearStr, 10);
+      if (year >= 1980 && year <= new Date().getFullYear() + 1) {
+        foundYears.push(year);
+      }
+    }
   }
-  return null;
+
+  // Убираем дубликаты
+  const uniqueYears = [...new Set(foundYears)];
+
+  if (uniqueYears.length === 0) {
+    console.log(`[DEBUG] Год не найден стандартными методами, ищем любые 4 цифры в: "${title}"`);
+
+    // Последняя попытка - ищем любые 4 цифры подряд
+    const fallbackMatches = title.match(/\d{4}/g);
+    if (fallbackMatches) {
+      for (const match of fallbackMatches) {
+        const year = parseInt(match, 10);
+        if (year >= 1980 && year <= new Date().getFullYear() + 1) {
+          console.log(`[DEBUG] Найден год через fallback: ${year} в "${title}"`);
+          return year;
+        }
+      }
+    }
+
+    console.log(`[DEBUG] Год не найден даже через fallback в: "${title}"`);
+    return null;
+  }
+
+  // Берем последний найденный год (наиболее вероятно год выпуска)
+  const year = uniqueYears[uniqueYears.length - 1];
+  console.log(`[DEBUG] Найден год: ${year} в "${title}"`);
+  return year;
 }
 
 function extractModelNameFromTitle(title: string): string {
   try {
-    // Находим год в заголовке
-    const yearMatch = title.match(/^\s*(\b(19|20)\d{2}\b)\s*/);
+    // Удаляем все годы из названия (может быть несколько и в любом месте)
+    let modelName = title.replace(/\b(19|20)\d{2}\b/g, '');
 
-    if (yearMatch && yearMatch[0]) {
-      // Удаляем год и лишние пробелы из начала строки
-      const modelName = title.replace(yearMatch[0], '').trim();
-      return modelName || title; // Возвращаем оригинальный заголовок, если после удаления года ничего не осталось
-    }
+    // Очищаем лишние пробелы, запятые, тире в начале и конце
+    modelName = modelName.replace(/^\s*[,\-\s]+|[,\-\s]+\s*$/g, '');
 
-    // Если год не найден в начале, возвращаем оригинальный заголовок
-    return title;
+    // Нормализуем множественные пробелы
+    modelName = modelName.replace(/\s+/g, ' ').trim();
+
+    // Если после очистки ничего не осталось, возвращаем оригинал
+    return modelName || title;
   } catch (error) {
     console.log('Ошибка при извлечении названия модели:', error);
     return title;
@@ -2034,25 +2080,45 @@ async function handleGetListings(req: Request, res: Response, count: number = 5)
       if (appStatus.yearFilterNotFound) {
         console.log('Фильтр года не найден, выполняем сортировку и фильтрацию по году из заголовка...');
         if (appStatus.minYear !== undefined || appStatus.maxYear !== undefined) {
-          console.log(`Применяем фильтр года: от ${appStatus.minYear || '-'} до ${appStatus.maxYear || '-'}`);
+          console.log(`🔍 [YEAR FILTER] Применяем фильтр года: от ${appStatus.minYear || '-'} до ${appStatus.maxYear || '-'}`);
+          console.log(`🔍 [YEAR FILTER] Всего объявлений для фильтрации: ${items.length}`);
+
+          let itemsWithYear = 0;
+          let itemsWithoutYear = 0;
+
           const filteredItems = items.filter(item => {
             const year = extractYearFromTitle(item.title);
-            if (year === null) return true;
+
+            if (year === null) {
+              itemsWithoutYear++;
+              console.log(`⚠️ [YEAR FILTER] Год не найден, пропускаем: "${item.title}"`);
+              return true; // пропускаем объявления без года
+            }
+
+            itemsWithYear++;
+
             if (appStatus.minYear !== undefined && year < appStatus.minYear) {
-              console.log(`Отфильтровано объявление с годом ${year} < ${appStatus.minYear}: ${item.title}`);
+              console.log(`❌ [YEAR FILTER] Отфильтровано: год ${year} < ${appStatus.minYear} в "${item.title}"`);
               return false;
             }
             if (appStatus.maxYear !== undefined && year > appStatus.maxYear) {
-              console.log(`Отфильтровано объявление с годом ${year} > ${appStatus.maxYear}: ${item.title}`);
+              console.log(`❌ [YEAR FILTER] Отфильтровано: год ${year} > ${appStatus.maxYear} в "${item.title}"`);
               return false;
             }
 
+            console.log(`✅ [YEAR FILTER] Прошло фильтр: год ${year} в "${item.title}"`);
             return true;
           });
 
           filteredCount = items.length - filteredItems.length;
-          console.log(`Отфильтровано объявлений: ${filteredCount} из ${items.length}`);
+          console.log(`🔍 [YEAR FILTER] Статистика:`);
+          console.log(`  - Объявлений с годом: ${itemsWithYear}`);
+          console.log(`  - Объявлений без года: ${itemsWithoutYear}`);
+          console.log(`  - Отфильтровано: ${filteredCount} из ${items.length}`);
+          console.log(`  - Осталось: ${filteredItems.length}`);
           items = filteredItems;
+        } else {
+          console.log(`⚠️ [YEAR FILTER] Фильтры года не установлены (minYear=${appStatus.minYear}, maxYear=${appStatus.maxYear})`);
         }
         items.sort((a, b) => {
           const yearA = extractYearFromTitle(a.title);
