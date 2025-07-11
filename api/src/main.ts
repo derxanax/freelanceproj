@@ -762,6 +762,7 @@ async function handleRestartBrowser(req: Request, res: Response): Promise<Respon
 
 async function applyLast24HoursFilter(): Promise<boolean> {
   if (!globalPage) return false;
+  const page = globalPage;
 
   try {
     console.log('🕐 Применяю фильтр "Последние 24 часа"...');
@@ -769,247 +770,141 @@ async function applyLast24HoursFilter(): Promise<boolean> {
     // Подход 1: Приоритетный - через URL-параметры (надежнее)
     try {
       console.log('🔥 Применение фильтров через URL...');
-      const currentUrl = globalPage.url();
-      let newUrl = currentUrl;
+      const currentUrl = page.url();
+      let newUrl = new URL(currentUrl);
 
-      // Добавляем параметр сортировки по дате создания
-      if (!newUrl.includes('sortBy=')) {
-        newUrl += (newUrl.includes('?') ? '&' : '?') + 'sortBy=creation_time_descend';
-      } else {
-        newUrl = newUrl.replace(/sortBy=[^&]+/, 'sortBy=creation_time_descend');
-      }
+      newUrl.searchParams.set('sortBy', 'creation_time_descend');
+      newUrl.searchParams.set('daysSinceListed', '1');
 
-      // Добавляем параметр фильтра времени (24 часа)
-      if (!newUrl.includes('daysSinceListed=')) {
-        newUrl += '&daysSinceListed=1';
-      } else {
-        newUrl = newUrl.replace(/daysSinceListed=[^&]+/, 'daysSinceListed=1');
-      }
-
-      if (newUrl !== currentUrl) {
-        console.log(`🚀 Переход на URL с фильтрами: ${newUrl}`);
-        await globalPage.goto(newUrl, { timeout: 30000 });
-        await globalPage.waitForTimeout(3000);
-
-        // Проверяем, что фильтры действительно применились
-        const urlAfterNavigation = globalPage.url();
+      if (newUrl.toString() !== currentUrl) {
+        console.log(`🚀 Переход на URL с фильтрами: ${newUrl.toString()}`);
+        await page.goto(newUrl.toString(), { waitUntil: 'networkidle', timeout: 30000 });
+        await page.waitForTimeout(getRandomDelay(2000, 3000));
+        const urlAfterNavigation = page.url();
         if (urlAfterNavigation.includes('sortBy=creation_time_descend') && urlAfterNavigation.includes('daysSinceListed=1')) {
-          console.log('✅ УСПЕХ! Фильтры применены через URL - "Последние 24 часа" + сортировка по дате');
+          console.log('✅ УСПЕХ! Фильтры применены через URL.');
           return true;
-        } else {
-          console.log('⚠️ Фильтры в URL не обнаружены после навигации, переходим к кликам...');
         }
-      } else {
-        console.log('⚠️ URL не изменился, переходим к кликам...');
       }
     } catch (urlError) {
-      console.log(`⚠️ Ошибка при попытке применить фильтры через URL: ${urlError}`);
+      console.log(`⚠️ Ошибка при попытке применить фильтры через URL: ${urlError}, перехожу к кликам.`);
     }
 
     // Подход 2: Резервный - через клики (если URL не сработал)
     console.log('🔥 Применяю фильтры через последовательность кликов...');
 
-    // Шаг 1: Поиск и клик на кнопку сортировки
+    // Шаг 1: Клик на "Сортировка:"
     console.log('🔍 Шаг 1: Клик на "Сортировка:"');
-    const sortButtonSelectors = [
-      'text=Сортировка:',
-      '*:has-text("Сортировка:")',
-      'span:has-text("Сортировка:")',
-      'div[role="button"]:has-text("Сортировка:")'
-    ];
-
-    let sortButtonClicked = false;
-
-    // Попытка через обычные селекторы
-    for (const selector of sortButtonSelectors) {
-      try {
-        console.log(`Попытка клика по селектору: ${selector}`);
-        const element = globalPage.locator(selector).first();
-        if (await element.count() > 0 && await element.isVisible()) {
-          await element.click({ timeout: 5000 });
-          console.log(`✅ text селектор сработал: ${selector}`);
-          sortButtonClicked = true;
-          break;
-        }
-      } catch (e) {
-        console.log(`❌ text селектор не сработал: ${e}`);
-      }
-    }
-
-    // Если обычные селекторы не сработали, пробуем JavaScript
-    if (!sortButtonClicked) {
-      try {
-        console.log('🔧 Пробую найти кнопку сортировки через JavaScript...');
-        const jsResult = await globalPage.evaluate(() => {
-          // Ищем по тексту "Сортировка:"
-          const elements = Array.from(document.querySelectorAll('*'));
-          for (const el of elements) {
-            if (el.textContent && el.textContent.includes('Сортировка:') &&
-              (el.tagName === 'SPAN' || el.tagName === 'DIV') &&
-              el.getAttribute('role') === 'button') {
-              (el as HTMLElement).click();
-              return true;
-            }
+    try {
+      console.log('  -> Попытка 1 (Legacy селекторы)');
+      const sortButtonSelectors = [
+        'text=Сортировка:',
+        '*:has-text("Сортировка:")',
+        'span:has-text("Сортировка:")',
+        'div[role="button"]:has-text("Сортировка:")'
+      ];
+      let sortButtonClicked = false;
+      for (const selector of sortButtonSelectors) {
+        try {
+          const element = page.locator(selector).first();
+          if (await element.count() > 0 && await element.isVisible()) {
+            await element.click({ timeout: 3000 });
+            sortButtonClicked = true;
+            break;
           }
-          return false;
-        });
-
-        if (jsResult) {
-          console.log('✅ JavaScript поиск кнопки сортировки успешен');
-          sortButtonClicked = true;
-        }
-      } catch (jsError) {
-        console.log(`❌ JavaScript поиск не удался: ${jsError}`);
+        } catch (e) { /* continue */ }
+      }
+      if (!sortButtonClicked) throw new Error("Legacy selectors failed for Step 1");
+      console.log('  ✅ Успех (Legacy селекторы)');
+    } catch (legacyError) {
+      console.log(`  ⚠️ Legacy метод не сработал, пробую Modern (getByRole)`);
+      try {
+        const filterButton = page.getByRole('button', { name: /Фильтры|Сортировка/i });
+        await filterButton.click({ timeout: 10000 });
+        console.log('  ✅ Успех (Modern селектор)');
+      } catch (modernError) {
+        console.error('❌ Шаг 1: Не удалось кликнуть на кнопку открытия фильтров всеми методами.', modernError);
+        return false;
       }
     }
-
-    if (!sortButtonClicked) {
-      console.log('⚠️ Не удалось кликнуть на "Сортировка:", но продолжаем работу');
-      return false;
-    }
-
-    await globalPage.waitForTimeout(1500);
+    await page.waitForTimeout(getRandomDelay(1000, 1500));
 
     // Шаг 2: Выбор "Дата публикации: сначала новые"
-    console.log('🔍 Шаг 2: Выбор "Дата публикации: сначала новые"...');
-    let datePublicationClicked = false;
-
+    console.log('🔍 Шаг 2: Выбор "Дата публикации: сначала новые"');
     try {
-      const datePublicationElement = await globalPage.locator('span', {
-        hasText: 'Дата публикации: сначала новые'
-      }).first();
-
-      if (await datePublicationElement.count() > 0) {
-        await datePublicationElement.click();
-        datePublicationClicked = true;
-        await globalPage.waitForTimeout(1500);
-      }
-    } catch (error) {
-      console.log(`Не удалось кликнуть на "Дата публикации: сначала новые" через локатор: ${error}`);
-    }
-
-    if (!datePublicationClicked) {
+      console.log('  -> Попытка 1 (Legacy селекторы)');
+      const datePublicationElement = page.locator('span', { hasText: 'Дата публикации: сначала новые' }).first();
+      if (!await datePublicationElement.count()) throw new Error("Legacy selector not found for Step 2");
+      await datePublicationElement.click({ timeout: 5000 });
+      console.log('  ✅ Успех (Legacy селекторы)');
+    } catch (legacyError) {
+      console.log(`  ⚠️ Legacy метод не сработал, пробую Modern (getByRole)`);
       try {
-        const jsResult = await globalPage.evaluate(() => {
-          const spans = Array.from(document.querySelectorAll('span[id^="_R_"], span'));
-          for (const span of spans) {
-            if (span.textContent && span.textContent.includes('Дата публикации: сначала')) {
-              (span as HTMLElement).click();
-              return true;
-            }
-          }
-          return false;
-        });
-
-        if (jsResult) {
-          datePublicationClicked = true;
-          await globalPage.waitForTimeout(1500);
-        }
-      } catch (jsError) {
-        console.log(`Ошибка при попытке клика через JavaScript: ${jsError}`);
+        const sortByDateOption = page.getByRole('menuitemradio', { name: /Дата публикации: сначала новые/i });
+        await sortByDateOption.click({ timeout: 10000 });
+        console.log('  ✅ Успех (Modern селектор)');
+      } catch (modernError) {
+        console.error('❌ Шаг 2: Не удалось выбрать "Дата публикации: сначала новые" всеми методами.', modernError);
+        // Не критично, продолжаем
       }
     }
+    await page.waitForTimeout(getRandomDelay(1000, 1500));
 
-    if (!datePublicationClicked) {
-      console.log('⚠️ Не удалось выбрать "Дата публикации: сначала новые"');
-      return false;
-    }
-
-    // Шаг 3: Клик на фильтр "Дата размещения"
-    console.log('🔍 Шаг 3: Клик на фильтр "Дата размещения"...');
-    let timeFilterClicked = false;
-
+    // Шаг 3: Клик на "Дата размещения"
+    console.log('🔍 Шаг 3: Клик на "Дата размещения"');
     try {
-      const timeFilterElement = await globalPage.locator('span', {
-        hasText: 'Дата размещения'
-      }).first();
-
-      if (await timeFilterElement.count() > 0) {
-        await timeFilterElement.click();
-        timeFilterClicked = true;
-        await globalPage.waitForTimeout(1000);
-      }
-    } catch (error) {
-      console.log(`Не удалось кликнуть на "Дата размещения" через локатор: ${error}`);
-    }
-
-    if (!timeFilterClicked) {
+      console.log('  -> Попытка 1 (Legacy селекторы)');
+      const timeFilterElement = page.locator('span', { hasText: 'Дата размещения' }).first();
+      if (!await timeFilterElement.count()) throw new Error("Legacy selector not found for Step 3");
+      await timeFilterElement.click({ timeout: 5000 });
+      console.log('  ✅ Успех (Legacy селекторы)');
+    } catch (legacyError) {
+      console.log(`  ⚠️ Legacy метод не сработал, пробую Modern (getByRole)`);
       try {
-        const jsResult = await globalPage.evaluate(() => {
-          const elements = Array.from(document.querySelectorAll('span, div'));
-          for (const el of elements) {
-            if (el.textContent && el.textContent.includes('Дата размещения')) {
-              (el as HTMLElement).click();
-              return true;
-            }
-          }
-          return false;
-        });
-
-        if (jsResult) {
-          timeFilterClicked = true;
-          await globalPage.waitForTimeout(1000);
-        }
-      } catch (jsError) {
-        console.log(`Ошибка при попытке клика через JavaScript: ${jsError}`);
+        const dateListedButton = page.getByRole('button', { name: /Дата размещения/i });
+        await dateListedButton.click({ timeout: 10000 });
+        console.log('  ✅ Успех (Modern селектор)');
+      } catch (modernError) {
+        console.error('❌ Шаг 3: Не удалось найти или кликнуть на "Дата размещения" всеми методами.', modernError);
+        return false;
       }
     }
-
-    if (!timeFilterClicked) {
-      console.log('⚠️ Не удалось кликнуть на фильтр "Дата размещения"');
-      return false;
-    }
+    await page.waitForTimeout(getRandomDelay(1000, 1500));
 
     // Шаг 4: Выбор "Последние 24 часа"
-    console.log('🔍 Шаг 4: Выбор "Последние 24 часа"...');
-    let last24HoursClicked = false;
-
+    console.log('🔍 Шаг 4: Выбор "Последние 24 часа"');
     try {
-      const last24HoursElement = await globalPage.locator('span', {
-        hasText: 'Последние 24 часа'
-      }).first();
-
-      if (await last24HoursElement.count() > 0) {
-        await last24HoursElement.click();
-        last24HoursClicked = true;
-        await globalPage.waitForTimeout(1500);
-      }
-    } catch (error) {
-      console.log(`Не удалось кликнуть на "Последние 24 часа" через локатор: ${error}`);
-    }
-
-    if (!last24HoursClicked) {
+      console.log('  -> Попытка 1 (Legacy селекторы)');
+      const last24HoursElement = page.locator('span', { hasText: 'Последние 24 часа' }).first();
+      if (!await last24HoursElement.count()) throw new Error("Legacy selector not found for Step 4");
+      await last24HoursElement.click({ timeout: 5000 });
+      console.log('  ✅ Успех (Legacy селекторы)');
+    } catch (legacyError) {
+      console.log(`  ⚠️ Legacy метод не сработал, пробую Modern (getByRole)`);
       try {
-        const jsResult = await globalPage.evaluate(() => {
-          const spans = Array.from(document.querySelectorAll('span[id^="_R_"], span'));
-          for (const span of spans) {
-            if (span.textContent && span.textContent.includes('Последние 24 часа')) {
-              (span as HTMLElement).click();
-              return true;
-            }
-          }
-          return false;
-        });
-
-        if (jsResult) {
-          last24HoursClicked = true;
-          await globalPage.waitForTimeout(1500);
-        }
-      } catch (jsError) {
-        console.log(`Ошибка при попытке клика через JavaScript: ${jsError}`);
+        const last24HoursOption = page.getByRole('menuitemradio', { name: /Последние 24 часа/i });
+        await last24HoursOption.click({ timeout: 10000 });
+        console.log('  ✅ Успех (Modern селектор)');
+      } catch (modernError) {
+        console.error('❌ Шаг 4: Не удалось выбрать "Последние 24 часа" всеми методами.', modernError);
+        return false;
       }
     }
+    await page.waitForTimeout(getRandomDelay(2000, 3000));
 
-    if (last24HoursClicked) {
-      console.log('✅ Успешно выбрана опция "Последние 24 часа"');
+    // Финальная проверка
+    const finalUrl = page.url();
+    if (finalUrl.includes('daysSinceListed=1')) {
+      console.log('✅ Фильтр "Последние 24 часа" успешно применен (проверено по URL)');
       return true;
     } else {
-      console.log('⚠️ Не удалось выбрать опцию "Последние 24 часа"');
-      return false;
+      console.log('⚠️ Не удалось подтвердить применение фильтра по URL, но клики были выполнены.');
+      return true;
     }
 
   } catch (error) {
-    console.error('❌ Ошибка при применении фильтра "Последние 24 часа":', error);
+    console.error('❌ Критическая ошибка при применении фильтра "Последние 24 часа":', error);
+    await handleCriticalError('applyLast24HoursFilter', error);
     return false;
   }
 }
