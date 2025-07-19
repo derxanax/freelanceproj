@@ -327,7 +327,7 @@ bot.use(async (ctx: MyContext, next: () => Promise<void>) => {
                 clearInterval(intervalId);
                 monitoringIntervals.delete(targetChatId);
               }
-            }, 5 * 60 * 1000);
+            }, 3 * 60 * 1000);
 
             monitoringIntervals.set(targetChatId, intervalId);
 
@@ -414,10 +414,8 @@ try {
         console.log(`Удалено ${deletedLegacyCount.changes} устаревших записей без timestamp`);
       }
 
-      if ((deletedCount?.changes || 0) > 1000) {
-        console.log('Выполняется вакуум БД для оптимизации размера файла...');
-        db.exec('VACUUM');
-        console.log('Вакуум БД завершен');
+      if ((deletedCount?.changes || 0) > 5000) { // Увеличим порог для логгирования
+        console.log(`[cleanup] Удалено значительное количество старых записей: ${deletedCount.changes}`);
       }
     } catch (error) {
       console.error('Ошибка при очистке старых записей:', error);
@@ -426,8 +424,9 @@ try {
 
   function loadAllUrlsToCache() {
     try {
-      console.log('Загрузка всех URL из базы данных в глобальный кэш...');
-      const allUrls = db.prepare('SELECT itemUrl FROM sent_items WHERE itemUrl IS NOT NULL').all();
+      console.log('Загрузка URL за последние 3 дня в глобальный кэш...');
+      const threeDaysAgo = Date.now() - (3 * 24 * 60 * 60 * 1000);
+      const allUrls = db.prepare('SELECT itemUrl FROM sent_items WHERE timestamp > ?').all(threeDaysAgo);
       let count = 0;
       for (const row of allUrls as any[]) {
         if (row && row.itemUrl) {
@@ -860,7 +859,7 @@ bot.hears('🔎 Запустить мониторинг', async (ctx: MyContext)
         clearInterval(intervalId);
         monitoringIntervals.delete(chatId);
       }
-    }, 5 * 60 * 1000);
+    }, 3 * 60 * 1000);
 
     monitoringIntervals.set(chatId, intervalId);
 
@@ -941,27 +940,33 @@ async function sendListings(ctx: MyContext) {
     const uniqueItems = [];
     let duplicatesRemoved = 0;
 
+    const newUrls: string[] = [];
     for (const item of filteredItems as any[]) {
       const url = item.itemUrl;
       if (!url) continue;
       const normalizedUrl = url.split('?')[0];
 
-      // Проверяем дубликаты по URL (быстрая проверка)
       if (ctx.session.sent.has(normalizedUrl) || ALL_KNOWN_URLS.has(normalizedUrl)) {
         duplicatesRemoved++;
         continue;
       }
 
-      // Добавляем новое объявление (только URL)
       ALL_KNOWN_URLS.add(normalizedUrl);
       ctx.session.sent.add(normalizedUrl);
       uniqueItems.push(item);
+      newUrls.push(normalizedUrl);
+    }
 
+    if (newUrls.length > 0) {
       try {
         const timestamp = Date.now();
-        db.prepare('INSERT OR IGNORE INTO sent_items (itemUrl, timestamp) VALUES (?, ?)').run(normalizedUrl, timestamp);
+        const insert = db.prepare('INSERT OR IGNORE INTO sent_items (itemUrl, timestamp) VALUES (?, ?)');
+        const insertMany = db.transaction((urls) => {
+          for (const url of urls) insert.run(url, timestamp);
+        });
+        insertMany(newUrls);
       } catch (insertError) {
-        console.error('[sendListings] Ошибка сохранения:', insertError);
+        console.error('[sendListings] Ошибка пакетного сохранения:', insertError);
       }
     }
 
