@@ -1090,92 +1090,82 @@ async function sendListings(ctx: MyContext) {
 async function clearImages() {
   try {
     const imgDirs = [
-      '/home/derx/Проекты/freelanceproj/api/src/img',
-      path.join(process.cwd(), 'api/src/img'),
-      path.join(process.cwd(), '../api/src/img'),
       path.resolve(__dirname, '../../api/src/img'),
-      path.join(__dirname, '../api/src/img'),
-      '/home/derx/Проекты/freelanceproj/api/src/img',
-      path.resolve(process.cwd(), 'api/src/img')
-    ]
+      path.join(process.cwd(), 'api/src/img'),
+    ];
+    const uniqueImgDirs = [...new Set(imgDirs)];
 
-    console.log('Очистка старых изображений (старше 30 минут)...')
     const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
+    let dirCleaned = false;
 
-    let dirCleaned = false
-    for (const imgDir of imgDirs) {
-      if (fs.existsSync(imgDir)) {
-        console.log(`Проверка директории: ${imgDir}`)
-        try {
-          const files = fs.readdirSync(imgDir)
-          let deleted = 0
-          let skipped = 0
-          let duplicatesRemoved = 0
+    for (const imgDir of uniqueImgDirs) {
+      try {
+        await fs.promises.access(imgDir);
+        console.log(`[clearImages] Начинаю проверку директории: ${imgDir}`);
+        dirCleaned = true;
 
-          const fileGroups = new Map<string, Array<{ name: string, path: string, mtime: number }>>()
+        const files = await fs.promises.readdir(imgDir);
+        let deleted = 0;
+        let duplicatesRemoved = 0;
+        let kept = 0;
 
-          for (const file of files) {
-            if (file.endsWith('.png') || file.endsWith('.jpg') || file.endsWith('.jpeg')) {
-              const filePath = path.join(imgDir, file)
-              try {
-                const stats = fs.statSync(filePath);
+        const fileGroups = new Map<string, Array<{ name: string; path: string; mtime: number }>>();
 
-                if (stats.mtime.getTime() < thirtyMinutesAgo) {
-                  fs.unlinkSync(filePath)
-                  deleted++
-                  continue
-                }
+        await Promise.all(files.map(async (file) => {
+          if (!/\.(png|jpe?g)$/i.test(file)) return;
 
-                const productKey = file.split('_').slice(0, 2).join('_')
-                if (!fileGroups.has(productKey)) {
-                  fileGroups.set(productKey, [])
-                }
-                fileGroups.get(productKey)!.push({
-                  name: file,
-                  path: filePath,
-                  mtime: stats.mtime.getTime()
-                })
-
-                skipped++
-              } catch (e) {
-                const errorMsg = e instanceof Error ? e.message : String(e)
-                console.error(`Ошибка при проверке ${filePath}: ${errorMsg}`)
-              }
+          const filePath = path.join(imgDir, file);
+          try {
+            const stats = await fs.promises.stat(filePath);
+            if (stats.mtime.getTime() < thirtyMinutesAgo) {
+              await fs.promises.unlink(filePath);
+              deleted++;
+              return;
             }
-          }
 
-          for (const [productKey, group] of fileGroups.entries()) {
-            if (group.length > 1) {
-              group.sort((a, b) => b.mtime - a.mtime)
-              for (let i = 1; i < group.length; i++) {
-                try {
-                  fs.unlinkSync(group[i].path)
-                  duplicatesRemoved++
-                  // Скрываем эти сообщения
-                  // console.log(`Удален дубликат: ${group[i].name}`)
-                } catch (e) {
-                  console.error(`Ошибка при удалении дубликата ${group[i].path}: ${e}`)
-                }
-              }
+            const productKey = file.split('_').slice(0, 2).join('_');
+            if (!fileGroups.has(productKey)) {
+              fileGroups.set(productKey, []);
             }
+            fileGroups.get(productKey)!.push({ name: file, path: filePath, mtime: stats.mtime.getTime() });
+          } catch (e) {
+            // Игнорируем ошибки, если файл был удален в параллельном процессе
           }
+        }));
 
-          if (deleted > 0 || skipped > 0 || duplicatesRemoved > 0) {
-            console.log(`Удалено ${deleted} старых файлов, ${duplicatesRemoved} дубликатов, оставлено ${skipped - duplicatesRemoved} уникальных в ${imgDir}`)
+        const duplicateDeletionPromises: Promise<void>[] = [];
+        for (const group of fileGroups.values()) {
+          if (group.length > 1) {
+            group.sort((a, b) => b.mtime - a.mtime);
+            kept += 1; // Оставляем самый новый
+            for (let i = 1; i < group.length; i++) {
+              duplicateDeletionPromises.push(
+                fs.promises.unlink(group[i].path).then(() => {
+                  duplicatesRemoved++;
+                }).catch(() => {})
+              );
+            }
+          } else if (group.length === 1) {
+            kept++;
           }
-          dirCleaned = true
-        } catch (e) {
-          const errorMsg = e instanceof Error ? e.message : String(e)
-          console.error(`Ошибка при чтении директории ${imgDir}: ${errorMsg}`)
         }
+
+        await Promise.all(duplicateDeletionPromises);
+
+        if (deleted > 0 || duplicatesRemoved > 0) {
+          console.log(`[clearImages] В ${imgDir}: удалено ${deleted} старых, ${duplicatesRemoved} дубликатов. Оставлено ${kept} файлов.`);
+        }
+
+      } catch (e) {
+        // Директория не найдена, это нормально, просто пропускаем
       }
     }
 
     if (!dirCleaned) {
-      console.error('Не найдена ни одна директория с изображениями! Проверены пути:', imgDirs)
+      console.log('[clearImages] Не найдена директория для изображений.');
     }
   } catch (e) {
-    console.error('Критическая ошибка при очистке изображений:', e)
+    console.error('[clearImages] Критическая ошибка:', e);
   }
 }
 

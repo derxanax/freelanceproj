@@ -5,7 +5,7 @@ import express, { Request, Response } from 'express';
 import fs from 'fs';
 import { AddressInfo } from 'net';
 import path from 'path';
-import { ElementHandle, firefox, Page } from 'playwright';
+import { ElementHandle, firefox, Page, Route } from 'playwright';
 7894754476
 
 let API_PORT = 3562;
@@ -563,7 +563,6 @@ async function restartBrowser(): Promise<boolean> {
     await cleanupSingletonLock();
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-    // Используем абсолютный путь для директории сессии
     const userDataDir = path.resolve(__dirname, '../../backend/sessions/fb-browser-session');
 
     try {
@@ -585,6 +584,7 @@ async function restartBrowser(): Promise<boolean> {
       });
 
       const page = await globalBrowser.newPage();
+      await page.route('**/*.{png,jpg,jpeg,gif,svg,css,woff,woff2}', (route: Route) => route.abort());
       globalPage = page;
 
       await page.addInitScript(() => {
@@ -610,11 +610,9 @@ async function restartBrowser(): Promise<boolean> {
       });
 
       await page.goto('https://www.facebook.com/marketplace', {
-        waitUntil: 'domcontentloaded',
-        timeout: 60000
+        waitUntil: 'networkidle',
+        timeout: 90000
       });
-
-      await page.waitForTimeout(getRandomDelay(2000, 4000));
       await humanMouseMove(page);
 
       await handleCheckpoints(page);
